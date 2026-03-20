@@ -5,6 +5,12 @@ require("dotenv").config();
 
 const app = express();
 const boothRoutes = require("./routes/boothRoutes");
+const voterRoutes = require("./routes/voterRoutes");
+const dashboardRoutes = require("./routes/dashboardRoutes");
+const schemeRoutes = require("./routes/schemeRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
+const campaignRoutes = require("./routes/campaignRoutes");
+const errorHandler = require("./middleware/errorHandler");
 
 // Middleware
 app.use(cors());
@@ -19,6 +25,17 @@ app.get("/", (req, res) => {
 // Server start
 const PORT = process.env.PORT || 5000;
 app.use("/booth", boothRoutes);
+app.use("/api/booth", boothRoutes);
+app.use("/api/booths", boothRoutes);
+app.use("/api/voters", voterRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/schemes", schemeRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/campaigns", campaignRoutes);
+app.use("/api/applications", require("./routes/applicationRoutes"));
+
+// Global error handler (Phase 6)
+app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

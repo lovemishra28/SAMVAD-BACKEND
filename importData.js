@@ -6,6 +6,7 @@ const Context = require("./models/Context");
 
 // You will create this next
 const Scheme = require("./models/Scheme");
+const Booth = require("./models/Booth");
 
 mongoose.connect("mongodb://127.0.0.1:27017/samvad");
 
@@ -15,11 +16,13 @@ const importData = async () => {
     await Voter.deleteMany();
     await Context.deleteMany();
     await Scheme.deleteMany();
+    await Booth.deleteMany();
 
     // Load CSV files
     const voters = await csv().fromFile("./data/VotersData.csv");
     const contexts = await csv().fromFile("./data/ContextData.csv");
     const schemes = await csv().fromFile("./data/SchemesData.csv");
+    const booths = await csv().fromFile("./data/BoothsData.csv");
 
     // Normalize CSV fields to match Mongoose schemas
     const votersToInsert = voters.map(v => ({
@@ -34,10 +37,16 @@ const importData = async () => {
       areaType: c.area_type
     }));
 
+    const boothsToInsert = booths.map(b => ({
+      ...b,
+      voterCount: Number(b.voterCount) || 0,
+    }));
+
     // Insert into DB
     await Voter.insertMany(votersToInsert);
     await Context.insertMany(contextsToInsert);
     await Scheme.insertMany(schemes);
+    await Booth.insertMany(boothsToInsert);
 
     console.log("All data imported successfully ✅");
     process.exit();

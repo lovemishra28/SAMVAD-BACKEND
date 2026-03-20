@@ -1,0 +1,26 @@
+id,name,area,district,type,lat,lng,voterCount
+Booth_01,Booth 01,Ward 1 — Rewa City,Rewa,Semi-Urban,24.5310,81.2930,427
+Booth_02,Booth 02,Ward 2 — Tikamgarh Zone,Tikamgarh,Urban,24.7430,78.8310,416
+Booth_03,Booth 03,Ward 3 — Vidisha Rural Belt,Vidisha,Rural,23.5260,77.8080,406
+Booth_04,Booth 04,Ward 4 — Hoshangabad Area,Hoshangabad,Rural,22.7470,77.7260,403
+Booth_05,Booth 05,Ward 5 — Morena District,Morena,Rural,26.4990,78.0580,365
+Booth_06,Booth 06,Ward 6 — Burhanpur City,Burhanpur,Urban,21.3100,76.2300,350
+Booth_07,Booth 07,Ward 7 — Sidhi Town,Sidhi,Semi-Urban,24.3960,81.8830,378
+Booth_08,Booth 08,Ward 8 — Satna Municipal,Satna,Semi-Urban,24.5810,80.8350,399
+Booth_09,Booth 09,Ward 9 — Chhindwara Hub,Chhindwara,Semi-Urban,22.0570,78.9380,408
+Booth_10,Booth 10,Ward 10 — Dewas Nagar,Dewas,Urban,22.9660,76.0530,398
+Booth_11,Booth 11,Ward 11 — Damoh Rural,Damoh,Rural,23.8360,79.4410,402
+Booth_12,Booth 12,Ward 12 — Indore Metro,Indore,Urban,22.7196,75.8577,388
+Booth_13,Booth 13,Ward 13 — Jabalpur City,Jabalpur,Urban,23.1815,79.9864,431
+Booth_14,Booth 14,Ward 14 — Balaghat Zone,Balaghat,Semi-Urban,21.8100,80.1860,362
+Booth_15,Booth 15,Ward 15 — Sagar Town,Sagar,Semi-Urban,23.8388,78.7378,408
+Booth_16,Booth 16,Ward 16 — Bhopal Capital,Bhopal,Urban,23.2599,77.4126,375
+Booth_17,Booth 17,Ward 17 — Panna Forest Belt,Panna,Rural,24.7180,80.1870,423
+Booth_18,Booth 18,Ward 18 — Gwalior Fort Area,Gwalior,Urban,26.2183,78.1828,396
+Booth_19,Booth 19,Ward 19 — Ujjain Heritage,Ujjain,Urban,23.1765,75.7885,390
+Booth_20,Booth 20,Ward 20 — Khandwa District,Khandwa,Rural,21.8240,76.3520,403
+Booth_21,Booth 21,Ward 21 — Ratlam District,Ratlam,Urban,23.3340,75.0500,396
+Booth_22,Booth 22,Ward 22 — Mandsaur Area,Mandsaur,Semi-Urban,24.0710,75.0700,404
+Booth_23,Booth 23,Ward 23 — Seoni Tehsil,Seoni,Semi-Urban,22.0850,79.5560,420
+Booth_24,Booth 24,Ward 24 — Shivpuri Outskirts,Shivpuri,Rural,25.4310,77.6630,391
+Booth_25,Booth 25,Ward 25 — Datia Rural,Datia,Rural,25.6650,78.4600,461
