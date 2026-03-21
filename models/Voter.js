@@ -20,6 +20,20 @@ const voterSchema = new mongoose.Schema({
   address: {
     type: String,
   },
+  occupation: {
+    type: String,
+    enum: ['Farmer', 'Student', 'Worker', 'Senior Citizen', ''],
+    default: '',
+  },
+  interests: {
+    type: [String],
+    default: [],
+  },
+  mobileNumber: {
+    type: String,
+    required: true,
+    match: /^[0-9]{10}$/,
+  },
 }, { timestamps: true });
 
 module.exports = mongoose.model("Voter", voterSchema);

@@ -59,8 +59,33 @@ const getSchemes = async (category) => {
     // Allow passing either the ML category or the frontend category (case-insensitive)
     filter.category = { $regex: new RegExp(`^${category}$`, "i") };
   }
-  const schemes = await Scheme.find(filter).lean();
-  return schemes.map(formatScheme);
+
+  try {
+    const schemes = await Scheme.find(filter).lean();
+    if (!Array.isArray(schemes)) return [];
+    return schemes.map(formatScheme);
+  } catch (error) {
+    console.error("SchemeService.getSchemes: DB fetch failed:", error);
+    // Fallback set (if DB is down, still allow frontend to function)
+    return [
+      {
+        id: "SCHEMAUTO-001",
+        name: "PM-Kisan",
+        category: "Farmers",
+        description: "Fallback scheme list (DB unavailable)",
+        status: "active",
+        daysUntilDeadline: null,
+      },
+      {
+        id: "SCHEMAUTO-002",
+        name: "Skill India",
+        category: "Students",
+        description: "Fallback scheme list (DB unavailable)",
+        status: "active",
+        daysUntilDeadline: null,
+      },
+    ].map(formatScheme);
+  }
 };
 
 const getSchemeById = async (schemeId) => {

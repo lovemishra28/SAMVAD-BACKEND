@@ -23,16 +23,16 @@ METADATA_PATH = os.path.join(BASE_DIR, "model_metadata.json")
 PORT = int(os.environ.get("ML_SERVICE_PORT", 5001))
 
 # ─── Load Model ─────────────────────────────────────────────────────
-print("🔧 Loading ML model...")
+print("[INFO] Loading ML model...")
 try:
     bundle = joblib.load(MODEL_PATH)
     model = bundle["model"]
     label_encoder = bundle["label_encoder"]
     FEATURE_COLS = bundle["feature_columns"]
     CATEGORIES = bundle["categories"]
-    print(f"   ✅ Model loaded. Categories: {CATEGORIES}")
+    print(f"   [OK] Model loaded. Categories: {CATEGORIES}")
 except FileNotFoundError:
-    print("   ❌ Model file not found! Run train_model.py first.")
+    print("   [ERROR] Model file not found! Run train_model.py first.")
     model = None
     CATEGORIES = []
     FEATURE_COLS = []
@@ -201,5 +201,5 @@ def predict():
 # ─── Run Server ──────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print(f"\n🚀 SAMVAD ML Classification Service starting on port {PORT}...")
+    print(f"\n[START] SAMVAD ML Classification Service starting on port {PORT}...")
     app.run(host="0.0.0.0", port=PORT, debug=False)

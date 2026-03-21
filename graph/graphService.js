@@ -88,6 +88,39 @@ const CROSS_WEIGHTS = {
   },
 };
 
+// ─── Occupation + Interest Mapping ─────────────────────────────────
+// These maps are used to adjust scheme relevance when voter occupation
+// or interests strongly align with scheme category or issue keywords.
+const OCCUPATION_CATEGORY_MAP = {
+  Student: "Student",
+  Worker: "Worker",
+  Farmer: "Farmer",
+  'Senior Citizen': "Senior",
+};
+
+const INTEREST_TO_SCHEME_ISSUES = {
+  technology: ["Skill Development", "Job Opportunities", "Education Support"],
+  coding: ["Skill Development", "Job Opportunities"],
+  career: ["Job Opportunities", "Skill Development"],
+  finance: ["Financial Literacy", "Job Opportunities"],
+  travel: ["Labor Support", "Mobility Support"],
+  sports: ["Healthcare", "Wellness"],
+  fitness: ["Healthcare", "Wellness"],
+  community: ["Community Welfare", "Women Welfare"],
+  'community service': ["Community Welfare", "Social Support"],
+  gardening: ["Agriculture Support", "Environment"],
+  agriculture: ["Agriculture Support", "Irrigation"],
+  livestock: ["Agriculture Support", "Rural Welfare"],
+  nature: ["Environment", "Agriculture Support"],
+  reading: ["Education Support", "Cultural"],
+  music: ["Culture", "Education Support"],
+  arts: ["Culture", "Education Support"],
+  family: ["Family Welfare", "Social Security"],
+  crafts: ["Skill Development", "Artisan Support"],
+  health: ["Healthcare", "Wellness"],
+  walking: ["Healthcare", "Wellness"],
+};
+
 // ─── Issue Relevance Mapping ───────────────────────────────────────
 // Maps booth issue keywords to scheme issue categories for boosting.
 const ISSUE_KEYWORD_MAP = {
@@ -195,6 +228,52 @@ class KnowledgeGraph {
   }
 
   /**
+   * Compute occupation relevance boost.
+   */
+  _computeOccupationBoost(scheme, voterOccupation) {
+    if (!voterOccupation) return 1.0;
+
+    const schemeCategory = scheme.category || "";
+    const normalized = OCCUPATION_CATEGORY_MAP[voterOccupation] || "";
+    if (normalized && schemeCategory === normalized) {
+      return 1.25;
+    }
+
+    // To avoid overshooting, tie Worker-based occupation to related categories.
+    if (normalized === "Worker" && ["Student", "Farmer"].includes(schemeCategory)) {
+      return 1.05;
+    }
+
+    return 1.0;
+  }
+
+  /**
+   * Compute Interest-based boost. Matches voter interests with scheme issue/description.
+   */
+  _computeInterestBoost(scheme, voterInterests) {
+    if (!voterInterests || !voterInterests.length) return 1.0;
+
+    const schemeText = `${scheme.scheme_name || ""} ${scheme.issue_targeted || ""} ${scheme.description || ""}`.toLowerCase();
+
+    let bonus = 1.0;
+    for (const interest of voterInterests) {
+      const normalizedInterest = interest.toLowerCase();
+
+      if (schemeText.includes(normalizedInterest)) {
+        bonus = Math.max(bonus, 1.25);
+      } else if (INTEREST_TO_SCHEME_ISSUES[normalizedInterest]) {
+        const mapIssues = INTEREST_TO_SCHEME_ISSUES[normalizedInterest].map((i) => i.toLowerCase());
+        const schemeIssue = (scheme.issue_targeted || "").toLowerCase();
+        if (mapIssues.some((i) => schemeIssue.includes(i))) {
+          bonus = Math.max(bonus, 1.2);
+        }
+      }
+    }
+
+    return bonus;
+  }
+
+  /**
    * Compute a deadline proximity factor.
    * Schemes with approaching deadlines get a slight boost (urgency signal).
    * Returns a multiplier between 1.0 and 1.2.
@@ -283,7 +362,10 @@ class KnowledgeGraph {
       // ── Apply contextual multipliers ──
       const issueBoost = this._computeIssueBoost(scheme, boothIssue);
       const deadlineFactor = this._computeDeadlineFactor(scheme);
-      const finalRelevance = rawRelevance * issueBoost * deadlineFactor;
+      const occupationBoost = this._computeOccupationBoost(scheme, options.occupation);
+      const interestBoost = this._computeInterestBoost(scheme, options.interests);
+
+      const finalRelevance = rawRelevance * issueBoost * deadlineFactor * occupationBoost * interestBoost;
 
       if (finalRelevance > 0) {
         schemeRelevanceScores.push({
@@ -326,11 +408,13 @@ const knowledgeGraph = new KnowledgeGraph();
  * @param {number} topN - Number of schemes to return
  * @returns {Array<Object>} Ranked scheme recommendations with relevance scores
  */
-const getRecommendedSchemes = async (mlScores, boothIssue, gender, age, topN = 3) => {
+const getRecommendedSchemes = async (mlScores, boothIssue = "", gender = "Other", age = 0, interests = [], occupation = "", topN = 3) => {
   return knowledgeGraph.recommend(mlScores, {
     boothIssue,
     gender,
     age,
+    interests,
+    occupation,
     topN,
   });
 };

@@ -10,6 +10,14 @@ const Booth = require("./models/Booth");
 
 mongoose.connect("mongodb://127.0.0.1:27017/samvad");
 
+const makeMobileNumber = (index) => {
+  // deterministic 10-digit fallback mobile numbers
+  // e.g. 7000000000, 7000000001, ...
+  const base = 7000000000;
+  const num = base + index;
+  return String(num).padStart(10, "0");
+};
+
 const importData = async () => {
   try {
     // Clear old data
@@ -25,9 +33,12 @@ const importData = async () => {
     const booths = await csv().fromFile("./data/BoothsData.csv");
 
     // Normalize CSV fields to match Mongoose schemas
-    const votersToInsert = voters.map(v => ({
+    const votersToInsert = voters.map((v, idx) => ({
       ...v,
       boothId: v.booth_id,
+      mobileNumber: v.mobileNumber ? String(v.mobileNumber).trim() : makeMobileNumber(idx),
+      occupation: v.Occupation || "",
+      interests: v.Interests ? v.Interests.split(",").map(i => i.trim()) : []
       // keep original CSV fields for traceability if desired
     }));
 

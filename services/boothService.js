@@ -135,6 +135,8 @@ const processBoothData = async (boothId) => {
         boothIssue,
         voter.gender,
         voter.age,
+        Array.isArray(voter.interests) ? voter.interests : (typeof voter.interests === 'string' ? [voter.interests] : []),
+        voter.occupation || '',
         3 // Top 3 recommendations
       );
 

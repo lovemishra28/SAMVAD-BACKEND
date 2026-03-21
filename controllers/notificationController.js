@@ -1,5 +1,6 @@
 const Notification = require("../models/Notification");
 const { processBoothData } = require("../services/boothService");
+const { logNotificationBatch, getLoggedCategories, getLoggedCategoryStatus } = require("../utils/logger");
 
 // Mapping from frontend-friendly category names to internal ML category keys
 const CATEGORY_MAP = {
@@ -32,15 +33,14 @@ const sendNotification = async (req, res) => {
     const targetCategory = getCategoryKey(category);
     const voters = grouped[targetCategory] || [];
 
-    // Generate delivery logs (simulated)
+    // Generate delivery logs (all delivered, no artificial failure markers)
     const logs = voters.map((voter) => {
-      const status = Math.random() < 0.92 ? "delivered" : "failed";
       return {
         voterId: voter._id || voter.id || null,
         voterName: voter.name || "",
         schemeId: schemeIds[Math.floor(Math.random() * schemeIds.length)],
         schemeName: schemeIds[Math.floor(Math.random() * schemeIds.length)],
-        status,
+        status: "sent",
         channel: deliveryMethod,
         timestamp: new Date(),
       };
@@ -62,6 +62,15 @@ const sendNotification = async (req, res) => {
     const sampleVoters = voters.slice(0, 5).map(v => v.name || "Unknown");
     console.log(`║  Sample     : ${sampleVoters.join(", ")}${voters.length > 5 ? ` ... +${voters.length - 5} more` : ""}`);
     console.log("╚══════════════════════════════════════════════════════════╝\n");
+
+    // ─── Notification Log File ───
+    logNotificationBatch({ 
+      category, 
+      boothId, 
+      schemeIds, 
+      deliveryMethod, 
+      logs 
+    });
 
     const record = await Notification.create({
       category,
@@ -128,4 +137,14 @@ const getSummary = async (req, res) => {
   }
 };
 
-module.exports = { sendNotification, listNotifications, getSummary };
+const getLogCategories = (req, res) => {
+  try {
+    const status = getLoggedCategoryStatus();
+    res.json({ success: true, categories: status });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Failed to read notification categories from log", error: error.message });
+  }
+};
+
+module.exports = { sendNotification, listNotifications, getSummary, getLogCategories };

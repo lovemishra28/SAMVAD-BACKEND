@@ -1,6 +1,12 @@
 const Voter = require("../models/Voter");
 const Booth = require("../models/Booth");
 
+const makeMobileNumber = (index) => {
+  const base = 7000000000;
+  const num = base + index;
+  return String(num).padStart(10, "0");
+};
+
 /**
  * GET /api/voters?boothId=<id>
  * Returns voter list for a booth (optionally filtered by boothId).
@@ -16,10 +22,15 @@ const getVoters = async (req, res) => {
       voters = await Voter.find({}).lean();
     }
 
+    const votersWithMobile = voters.map((voter, idx) => ({
+      ...voter,
+      mobileNumber: voter.mobileNumber || makeMobileNumber(idx),
+    }));
+
     const response = {
       success: true,
-      totalVoters: voters.length,
-      voters,
+      totalVoters: votersWithMobile.length,
+      voters: votersWithMobile,
     };
 
     if (boothId) {

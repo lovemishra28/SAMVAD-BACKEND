@@ -48,7 +48,17 @@ const getDashboard = async (req, res) => {
       const avgScores = averageScoresForVoters(votersForCategory);
       // Compute average age for this category group
       const avgAge = Math.round(votersForCategory.reduce((sum, v) => sum + (Number(v.age) || 0), 0) / votersForCategory.length);
-      const schemes = await getRecommendedSchemes(avgScores, context?.issue || "", votersForCategory[0]?.gender || "Other", avgAge, 3);
+      const groupInterests = votersForCategory[0]?.interests || [];
+      const groupOccupation = votersForCategory[0]?.occupation || '';
+      const schemes = await getRecommendedSchemes(
+        avgScores,
+        context?.issue || "",
+        votersForCategory[0]?.gender || "Other",
+        avgAge,
+        Array.isArray(groupInterests) ? groupInterests : (groupInterests ? [groupInterests] : []),
+        groupOccupation,
+        3
+      );
       topSchemesByCategory[key] = schemes;
     }
 
