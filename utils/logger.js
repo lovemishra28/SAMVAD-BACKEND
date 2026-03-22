@@ -27,8 +27,8 @@ const logNotificationBatch = ({ category, boothId, schemeIds, deliveryMethod, lo
     output += `- Schemes: **${schemeIds.join(", ")}**\n`;
     output += `- Method: **${deliveryMethod}**\n`;
     output += `- Total voters targeted: **${count}**\n`;
-    output += `- Total delivered: **${logs.filter(l => l.status === 'sent').length}**\n`;
-    output += `- Total failed: **${logs.filter(l => l.status === 'failed').length}**\n`;
+    output += `- Total delivered: **${logs.filter(l => l.status === 'delivered').length}**\n`;
+    output += `- Total failed/not sent: **${logs.filter(l => l.status === 'failed' || l.status === 'not_sent').length}**\n`;
 
     output += `\n### Voter Deliveries\n`;
     output += `| Voter | Scheme | Status | Time |\n`;

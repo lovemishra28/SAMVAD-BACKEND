@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const csv = require("csvtojson");
+const connectDB = require("./config/db");
 
 const Voter = require("./models/Voter");
 const Context = require("./models/Context");
@@ -7,8 +8,6 @@ const Context = require("./models/Context");
 // You will create this next
 const Scheme = require("./models/Scheme");
 const Booth = require("./models/Booth");
-
-mongoose.connect("mongodb://127.0.0.1:27017/samvad");
 
 const makeMobileNumber = (index) => {
   // deterministic 10-digit fallback mobile numbers
@@ -20,6 +19,8 @@ const makeMobileNumber = (index) => {
 
 const importData = async () => {
   try {
+    await connectDB();
+
     // Clear old data
     await Voter.deleteMany();
     await Context.deleteMany();
@@ -60,10 +61,11 @@ const importData = async () => {
     await Booth.insertMany(boothsToInsert);
 
     console.log("All data imported successfully ✅");
-    process.exit();
   } catch (error) {
     console.error(error);
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    await mongoose.disconnect();
   }
 };
 

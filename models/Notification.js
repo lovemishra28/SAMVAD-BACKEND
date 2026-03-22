@@ -5,9 +5,10 @@ const notificationLogSchema = new mongoose.Schema({
   voterName: String,
   schemeId: String,
   schemeName: String,
+  errorMessage: String,
   status: {
     type: String,
-    enum: ["delivered", "failed"],
+    enum: ["delivered", "failed", "not_sent"],
     default: "delivered",
   },
   channel: {
@@ -27,8 +28,20 @@ const notificationSchema = new mongoose.Schema({
     required: true,
   },
   boothId: String,
+  messageBody: {
+    type: String,
+    default: "",
+  },
   schemes: [String],
   voterCount: Number,
+  deliveredCount: {
+    type: Number,
+    default: 0,
+  },
+  notSentCount: {
+    type: Number,
+    default: 0,
+  },
   sentAt: {
     type: Date,
     default: () => new Date(),
