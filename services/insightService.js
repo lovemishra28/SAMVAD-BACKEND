@@ -2,11 +2,21 @@
  * Normalize ML category names into frontend segment keys.
  */
 const CATEGORY_KEY_MAP = {
-  Farmer: "farmers",
-  Student: "students",
-  Senior: "seniorCitizens",
-  Worker: "workers",
-  Others: "others",
+  farmer: "farmers",
+  farmers: "farmers",
+  student: "students",
+  students: "students",
+  senior: "seniorCitizens",
+  "senior citizen": "seniorCitizens",
+  "senior citizens": "seniorCitizens",
+  worker: "workers",
+  workers: "workers",
+  other: "others",
+  others: "others",
+};
+
+const normalizeCategoryKey = (category) => {
+  return String(category || "").trim().toLowerCase();
 };
 
 /**
@@ -23,7 +33,8 @@ const buildSegments = (groupedByCategory = {}) => {
   };
 
   for (const [category, voters] of Object.entries(groupedByCategory)) {
-    const key = CATEGORY_KEY_MAP[category] || "others";
+    const normalized = normalizeCategoryKey(category);
+    const key = CATEGORY_KEY_MAP[normalized] || "others";
     segments[key] = voters || [];
   }
 
@@ -138,6 +149,16 @@ const buildSummary = ({ groupedByCategory, boothIssue }) => {
   const ageStats = computeAgeStats(voters);
   const genderSplit = computeGenderSplit(voters);
   const { categoryDistribution, dominantCategory } = computeCategoryDistribution(segments);
+  const womenCount = genderSplit.counts.Female || 0;
+
+  const cards = {
+    farmers: segments.farmers.length,
+    students: segments.students.length,
+    seniorCitizens: segments.seniorCitizens.length,
+    workers: segments.workers.length,
+    women: womenCount,
+    allVoters: totalVoters,
+  };
 
   return {
     totalVoters,
@@ -146,6 +167,7 @@ const buildSummary = ({ groupedByCategory, boothIssue }) => {
     maxAge: ageStats.maxAge,
     dominantCategory,
     categoryDistribution,
+    cards,
     genderSplit,
     insightText: generateInsightText({
       totalVoters,

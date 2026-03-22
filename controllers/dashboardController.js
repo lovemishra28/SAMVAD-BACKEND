@@ -67,6 +67,9 @@ const getDashboard = async (req, res) => {
       classificationEngine,
       segments,
       summary,
+      dashboardCards: summary.cards,
+      womenCount: summary?.genderSplit?.counts?.Female || 0,
+      allVotersCount: summary.totalVoters,
       topSchemesByCategory,
       raw: {
         context,

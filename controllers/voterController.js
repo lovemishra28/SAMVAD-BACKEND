@@ -7,13 +7,30 @@ const makeMobileNumber = (index) => {
   return String(num).padStart(10, "0");
 };
 
+const normalizeBoothId = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const boothMatch = raw.match(/^booth[_\s-]?(\d{1,2})$/i);
+  if (boothMatch) {
+    return `Booth_${String(Number(boothMatch[1])).padStart(2, "0")}`;
+  }
+
+  if (/^\d{1,2}$/.test(raw)) {
+    return `Booth_${String(Number(raw)).padStart(2, "0")}`;
+  }
+
+  return raw;
+};
+
 /**
  * GET /api/voters?boothId=<id>
  * Returns voter list for a booth (optionally filtered by boothId).
  */
 const getVoters = async (req, res) => {
   try {
-    const boothId = req.query.boothId;
+    const boothRaw = req.query.boothId || req.query.booth_id || req.query.booth || req.query.id;
+    const boothId = normalizeBoothId(boothRaw);
 
     let voters;
     if (boothId) {
