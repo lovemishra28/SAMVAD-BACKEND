@@ -4,8 +4,9 @@
 const CATEGORY_KEY_MAP = {
   Farmer: "farmers",
   Student: "students",
-  Senior: "seniorCitizens",
+  "Senior Citizen": "seniorCitizens",
   Worker: "workers",
+  Women: "women",
   Others: "others",
 };
 
@@ -19,22 +20,31 @@ const buildSegments = (groupedByCategory = {}) => {
     students: [],
     seniorCitizens: [],
     workers: [],
+    women: [],
     others: [],
   };
 
   for (const [category, voters] of Object.entries(groupedByCategory)) {
     const key = CATEGORY_KEY_MAP[category] || "others";
-    segments[key] = voters || [];
+    segments[key] = segments[key].concat(voters || []);
   }
 
   return segments;
 };
 
 /**
- * Flatten grouped voter arrays into a single voter list.
+ * Flatten grouped voter arrays into a single voter list with deduplication.
  */
 const flattenVoters = (groupedByCategory = {}) => {
-  return Object.values(groupedByCategory).flat();
+  const all = Object.values(groupedByCategory).flat();
+  const unique = new Map();
+  all.forEach((v) => {
+    const key = v._id?.toString() || v.id || v.mobileNumber;
+    if (key) {
+      unique.set(key, v);
+    }
+  });
+  return Array.from(unique.values());
 };
 
 /**
@@ -83,10 +93,11 @@ const computeCategoryDistribution = (segments) => {
     Students: segments.students.length,
     "Senior Citizens": segments.seniorCitizens.length,
     Workers: segments.workers.length,
+    Women: segments.women ? segments.women.length : 0,
     Others: segments.others.length,
   };
 
-  const total = Object.values(categoryCounts).reduce((sum, c) => sum + c, 0) || 1;
+  const total = (categoryCounts.Farmers + categoryCounts.Students + categoryCounts["Senior Citizens"] + categoryCounts.Workers + categoryCounts.Others) || 1;
 
   const categoryDistribution = {};
   for (const [name, count] of Object.entries(categoryCounts)) {
@@ -167,3 +178,4 @@ module.exports = {
   generateInsightText,
   buildSummary,
 };
+

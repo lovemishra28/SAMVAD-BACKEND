@@ -1,10 +1,14 @@
 const { processBoothData } = require("../services/boothService");
 const { buildSegments, buildSummary } = require("../services/insightService");
-const Booth = require("../models/Booth");
+const Booth = require('../models/Booth');
+const Voter = require('../models/Voter');
 
 const getBooths = async (req, res) => {
   try {
     const booths = await Booth.find({}).lean();
+    const counts = await Voter.aggregate([{ $group: { _id: '$boothId', count: { $sum: 1 } } }]);
+    const countMap = counts.reduce((acc, curr) => { acc[curr._id] = curr.count; return acc; }, {});
+    booths.forEach(b => { if (countMap[b.id] !== undefined) b.voterCount = countMap[b.id]; });
     res.json({ success: true, booths });
   } catch (error) {
     console.error(error);
@@ -21,9 +25,9 @@ const getBooth = async (req, res) => {
 
     const booth = await Booth.findOne({ id: boothId }).lean();
     if (!booth) {
-      return res.status(404).json({ success: false, message: "Booth not found" });
+      return res.status(404).json({ success: false, message: 'Booth not found' });
     }
-
+    booth.voterCount = await Voter.countDocuments({ boothId });
     res.json({ success: true, booth });
   } catch (error) {
     console.error(error);

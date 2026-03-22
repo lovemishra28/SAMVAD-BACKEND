@@ -1,450 +1,492 @@
 /**
- * SAMVAD — Knowledge Graph Recommendation Engine
- * =================================================
- * An in-memory weighted knowledge graph that maps ML classification
- * probability scores to relevant government schemes through multi-category
- * traversal and aggregated relevance scoring.
+ * SAMVAD — Production-Grade Personalized Scheme Recommendation Engine (v3)
+ * =========================================================================
  *
- * Graph Structure:
- *   CATEGORY NODES ──edge(weight)──> SCHEME NODES
+ * KEY CHANGE from v2: Interest is now a MULTIPLICATIVE GATE, not an additive weight.
+ * Zero interest match → entire score capped at ≤20%.
+ * This eliminates the static 40-50% scores for mismatched schemes.
  *
- *   - Category nodes: Student, Worker, Farmer, Senior, Others
- *   - Scheme nodes:   Each government scheme loaded from DB
- *   - Edge weights:   How relevant a scheme is to a particular category
- *                     (1.0 = primary match, 0.3-0.7 = cross-category relevance)
+ * Pipeline:
+ *   STAGE 1 — STRICT PRE-FILTERS (eliminatory)
+ *     ① Active date  ② Gender gate  ③ Occupation match  ④ Area match
  *
- * Recommendation Algorithm:
- *   For each voter with ML scores { Student: 0.65, Worker: 0.25, Farmer: 0.10, ... }
- *   and for each scheme S in the graph:
+ *   STAGE 2 — MULTIPLICATIVE INTEREST-GATED SCORING
+ *     baseScore = priority(0.35) + age(0.30) + genderFit(0.20) + benefitQuality(0.15)
+ *     interestMultiplier = f(interestScore)   // 1.0 exact → 0.20 no-match
+ *     finalScore = (0.55 * interestScore + 0.45 * baseScore) * interestMultiplier
  *
- *     relevance(S) = SUM over all categories C of:
- *         ml_score(C) * edge_weight(C, S) * issue_boost(S) * deadline_factor(S)
+ *   STAGE 3 — DIVERSITY CONTROL
+ *     Name-family dedup + cluster dedup + benefit-type variety
  *
- *   Return top-N schemes sorted by relevance score.
+ * All output is deterministic. No randomness. No fallback to irrelevant schemes.
  */
 
-const Scheme = require("../models/Scheme");
+const Scheme = require('../models/Scheme');
 
-// ─── Category Normalization ────────────────────────────────────────
-// Maps scheme DB categories to the ML model's output categories.
-// Some schemes use "Unemployed Youth" or "Senior Citizen" — we map those
-// to our ML categories so edges can be created.
-
-const SCHEME_TO_ML_CATEGORY = {
-  Student: "Student",
-  Worker: "Worker",
-  Farmer: "Farmer",
-  Senior: "Senior",
-  Women: "Women",  // Special handling — not an ML output category
+// ─── Interest Group Relations ──────────────────────────────────────
+// Expanded with cross-domain links so fewer voters get zero matches
+const INTEREST_RELATIONS = {
+  technology: ['coding', 'tech', 'digital', 'startup', 'it', 'software', 'computer', 'education'],
+  agriculture: ['farming', 'irrigation', 'crops', 'nature', 'rural', 'horticulture'],
+  health:      ['healthcare', 'medical', 'wellness', 'nutrition', 'sanitation', 'walking', 'sports', 'fitness', 'exercise'],
+  finance:     ['banking', 'loan', 'insurance', 'pension', 'savings', 'investment'],
+  education:   ['learning', 'study', 'school', 'college', 'university', 'skill', 'technology', 'coding'],
+  community:   ['social', 'community service', 'ngo', 'welfare', 'family', 'lifestyle', 'travel'],
+  arts:        ['crafts', 'culture', 'music', 'painting', 'literature', 'creative'],
+  sports:      ['fitness', 'games', 'athletics', 'physical', 'exercise', 'health', 'wellness'],
+  travel:      ['tourism', 'transport', 'mobility', 'community'],
+  lifestyle:   ['fashion', 'living', 'home', 'community', 'arts'],
 };
 
-// ─── Cross-Category Relevance Weights ──────────────────────────────
-// Defines how strongly a scheme from one category should also connect
-// to other categories. This captures the real-world truth that schemes
-// aren't strictly siloed. For example, a Worker skill development scheme
-// is also partially relevant to Students.
-//
-// Format: CROSS_WEIGHTS[schemeCategory][mlCategory] = weight
-// A weight of 1.0 means the scheme is a direct match for that ML category.
+// Women-only keywords
+const WOMEN_KEYWORDS = ['women', 'girl', 'female', 'mahila', 'beti', 'sukanya', 'stree'];
 
-const CROSS_WEIGHTS = {
-  Student: {
-    Student: 1.0,
-    Worker: 0.3,    // Some student schemes help workers too
-    Farmer: 0.05,
-    Senior: 0.0,
-    Others: 0.15,
-  },
-  Worker: {
-    Student: 0.25,  // Young workers benefit from worker schemes
-    Worker: 1.0,
-    Farmer: 0.2,    // Rural workers overlap with farmer needs
-    Senior: 0.15,   // Some worker schemes cover elderly workers
-    Others: 0.2,
-  },
-  Farmer: {
-    Student: 0.05,
-    Worker: 0.15,   // Agricultural workers
-    Farmer: 1.0,
-    Senior: 0.2,    // Elderly farmers still farm
-    Others: 0.1,
-  },
-  Senior: {
-    Student: 0.0,
-    Worker: 0.1,
-    Farmer: 0.1,
-    Senior: 1.0,
-    Others: 0.15,
-  },
-
-  Women: {
-    // Women schemes have a special gender-based pathway, not ML-score-based.
-    // These weights are used ONLY for female voters as a bonus.
-    Student: 0.4,
-    Worker: 0.4,
-    Farmer: 0.3,
-    Senior: 0.3,
-    Others: 0.3,
-  },
+// Age affinity rules per benefit_type and target_interest
+const AGE_AFFINITY = {
+  training:           { minAge: 18, maxAge: 40, peak: 25 },
+  education:          { minAge: 18, maxAge: 35, peak: 22 },
+  technology:         { minAge: 18, maxAge: 45, peak: 28 },
+  'job opportunities': { minAge: 18, maxAge: 40, peak: 28 },
+  pension:            { minAge: 55, maxAge: 100, peak: 65 },
+  healthcare:         { minAge: 50, maxAge: 100, peak: 70 },
+  health:             { minAge: 30, maxAge: 100, peak: 60 },
+  subsidy:            { minAge: 25, maxAge: 70, peak: 45 },
+  loan:               { minAge: 22, maxAge: 60, peak: 35 },
+  support:            { minAge: 18, maxAge: 100, peak: 50 },
+  agriculture:        { minAge: 22, maxAge: 70, peak: 40 },
+  finance:            { minAge: 25, maxAge: 80, peak: 45 },
+  community:          { minAge: 18, maxAge: 100, peak: 40 },
+  arts:               { minAge: 18, maxAge: 50, peak: 25 },
 };
 
-// ─── Occupation + Interest Mapping ─────────────────────────────────
-// These maps are used to adjust scheme relevance when voter occupation
-// or interests strongly align with scheme category or issue keywords.
-const OCCUPATION_CATEGORY_MAP = {
-  Student: "Student",
-  Worker: "Worker",
-  Farmer: "Farmer",
-  'Senior Citizen': "Senior",
-};
 
-const INTEREST_TO_SCHEME_ISSUES = {
-  technology: ["Skill Development", "Job Opportunities", "Education Support"],
-  coding: ["Skill Development", "Job Opportunities"],
-  career: ["Job Opportunities", "Skill Development"],
-  finance: ["Financial Literacy", "Job Opportunities"],
-  travel: ["Labor Support", "Mobility Support"],
-  sports: ["Healthcare", "Wellness"],
-  fitness: ["Healthcare", "Wellness"],
-  community: ["Community Welfare", "Women Welfare"],
-  'community service': ["Community Welfare", "Social Support"],
-  gardening: ["Agriculture Support", "Environment"],
-  agriculture: ["Agriculture Support", "Irrigation"],
-  livestock: ["Agriculture Support", "Rural Welfare"],
-  nature: ["Environment", "Agriculture Support"],
-  reading: ["Education Support", "Cultural"],
-  music: ["Culture", "Education Support"],
-  arts: ["Culture", "Education Support"],
-  family: ["Family Welfare", "Social Security"],
-  crafts: ["Skill Development", "Artisan Support"],
-  health: ["Healthcare", "Wellness"],
-  walking: ["Healthcare", "Wellness"],
-};
+// ─── PersonalizedRecommender ───────────────────────────────────────
 
-// ─── Issue Relevance Mapping ───────────────────────────────────────
-// Maps booth issue keywords to scheme issue categories for boosting.
-const ISSUE_KEYWORD_MAP = {
-  "job": ["Job Opportunities", "Skill Development", "Labor Support"],
-  "skill": ["Skill Development", "Job Opportunities"],
-  "student": ["Skill Development", "Job Opportunities"],
-  "youth": ["Skill Development", "Job Opportunities"],
-  "agriculture": ["Agriculture Support", "Irrigation"],
-  "irrigation": ["Irrigation", "Agriculture Support"],
-  "farmer": ["Agriculture Support", "Irrigation"],
-  "health": ["Healthcare"],
-  "senior": ["Healthcare", "Pension"],
-  "pension": ["Pension", "Healthcare"],
-  "road": ["Labor Support"],
-  "electricity": ["Labor Support"],
-  "startup": ["Job Opportunities"],
-  "entrepreneur": ["Job Opportunities"],
-  "transport": ["Labor Support"],
-  "waste": ["Healthcare"],
-  "sanitation": ["Healthcare"],
-  "women": ["Women Welfare", "Healthcare"],
-  "maternal": ["Women Welfare", "Healthcare"],
-};
-
-// ─── Knowledge Graph Class ─────────────────────────────────────────
-
-class KnowledgeGraph {
+class PersonalizedRecommender {
   constructor() {
-    this.schemes = [];       // All scheme documents from DB
-    this.edges = new Map();  // Map<scheme_id, Map<mlCategory, weight>>
+    this.schemes = [];
     this.isBuilt = false;
+    this._maxPriority = 10;
   }
 
-  /**
-   * Build the graph by loading all schemes from the database and
-   * creating weighted edges between ML categories and schemes.
-   */
+  // ─── Build / Index ──────────────────────────────────────────
+
   async build() {
-    console.log("[KnowledgeGraph] Building graph from scheme database...");
+    console.log('[Recommender v3] Building scheme index...');
+    const raw = await Scheme.find({}).lean();
 
-    this.schemes = await Scheme.find({}).lean();
-    this.edges = new Map();
-
-    for (const scheme of this.schemes) {
-      const schemeCategory = scheme.category;
-      const crossWeights = CROSS_WEIGHTS[schemeCategory];
-
-      if (!crossWeights) {
-        // Unknown category — create weak connections to all
-        const weakEdges = new Map();
-        for (const mlCat of ["Student", "Worker", "Farmer", "Senior", "Others"]) {
-          weakEdges.set(mlCat, 0.1);
-        }
-        this.edges.set(scheme.scheme_id, weakEdges);
-        continue;
-      }
-
-      // Create weighted edges from each ML category to this scheme
-      const edgeMap = new Map();
-      for (const [mlCat, weight] of Object.entries(crossWeights)) {
-        edgeMap.set(mlCat, weight);
-      }
-      this.edges.set(scheme.scheme_id, edgeMap);
+    if (raw.length > 0) {
+      this._maxPriority = Math.max(...raw.map(s => s.priority_score || 0), 1);
     }
 
+    this.schemes = raw.map(scheme => ({
+      ...scheme,
+      _isWomenScheme:        this._detectWomenScheme(scheme),
+      _isActive:             this._isSchemeActive(scheme),
+      _normalizedInterest:   (scheme.target_interest || '').toLowerCase().trim(),
+      _normalizedOccupation: (scheme.target_occupation || '').toLowerCase().trim(),
+      _normalizedArea:       (scheme.area_type || 'All').trim(),
+      _normalizedBenefit:    (scheme.benefit_type || '').toLowerCase().trim(),
+      _clusterKey:           this._computeClusterKey(scheme),
+      _schemeFamily:         this._computeSchemeFamily(scheme),
+    }));
+
+    const active = this.schemes.filter(s => s._isActive).length;
+    console.log(`[Recommender v3] Index ready: ${this.schemes.length} schemes (${active} active).`);
     this.isBuilt = true;
-    console.log(`[KnowledgeGraph] Graph built: ${this.schemes.length} scheme nodes, ${this.edges.size * 5} edges`);
   }
 
-  /**
-   * Ensure the graph is built (lazy initialization).
-   */
   async ensureBuilt() {
-    if (!this.isBuilt) {
-      await this.build();
-    }
+    if (!this.isBuilt) await this.build();
+  }
+
+  // ─── Pre-annotation Helpers ─────────────────────────────────
+
+  _detectWomenScheme(scheme) {
+    const eligibility = (scheme.eligibility || '').toLowerCase();
+    const name = (scheme.scheme_name || '').toLowerCase();
+    return WOMEN_KEYWORDS.some(kw => eligibility.includes(kw) || name.includes(kw))
+      || eligibility.startsWith('for women');
+  }
+
+  _isSchemeActive(scheme) {
+    const now = new Date();
+    const startOk = !scheme.start_date || new Date(scheme.start_date) <= now;
+    const endOk   = !scheme.end_date   || new Date(scheme.end_date)   >= now;
+    return startOk && endOk;
   }
 
   /**
-   * Compute the issue relevance boost for a scheme given the booth issue text.
-   * Returns a multiplier (1.0 = no boost, up to 1.5 = strong boost).
+   * Cluster key: groups near-identical schemes by content signature.
+   * occupation + interest + benefitType + first 40 chars of description
    */
-  _computeIssueBoost(scheme, boothIssue) {
-    if (!boothIssue) return 1.0;
-
-    const issueLower = boothIssue.toLowerCase();
-    const schemeIssue = (scheme.issue_targeted || "").toLowerCase();
-
-    // Direct match: booth issue text contains the scheme's target issue
-    if (issueLower.includes(schemeIssue) && schemeIssue !== "") {
-      return 1.2; // Reduced from 1.5 — category edge weights should dominate
-    }
-
-    // Keyword-based partial match
-    for (const [keyword, relevantIssues] of Object.entries(ISSUE_KEYWORD_MAP)) {
-      if (issueLower.includes(keyword)) {
-        const matchesSchemeIssue = relevantIssues.some(
-          (ri) => ri.toLowerCase() === schemeIssue
-        );
-        if (matchesSchemeIssue) return 1.1; // Reduced from 1.3
-      }
-    }
-
-    return 1.0;
+  _computeClusterKey(scheme) {
+    const occ  = (scheme.target_occupation || '').toLowerCase().trim();
+    const int  = (scheme.target_interest || '').toLowerCase().trim();
+    const ben  = (scheme.benefit_type || '').toLowerCase().trim();
+    const desc = (scheme.description || '').toLowerCase().trim().slice(0, 40);
+    return `${occ}|${int}|${ben}|${desc}`;
   }
 
   /**
-   * Compute occupation relevance boost.
+   * Scheme family: extracts the base name pattern by stripping numbers.
+   * "Crafts Initiative 107" → "crafts initiative"
+   * "NHM" → "nhm"
+   * Used to prevent multiple variants of the same named scheme in top-N.
    */
-  _computeOccupationBoost(scheme, voterOccupation) {
-    if (!voterOccupation) return 1.0;
-
-    const schemeCategory = scheme.category || "";
-    const normalized = OCCUPATION_CATEGORY_MAP[voterOccupation] || "";
-    if (normalized && schemeCategory === normalized) {
-      return 1.25;
-    }
-
-    // To avoid overshooting, tie Worker-based occupation to related categories.
-    if (normalized === "Worker" && ["Student", "Farmer"].includes(schemeCategory)) {
-      return 1.05;
-    }
-
-    return 1.0;
+  _computeSchemeFamily(scheme) {
+    return (scheme.scheme_name || '')
+      .replace(/\d+/g, '')     // strip all numbers
+      .replace(/\s+/g, ' ')    // normalize whitespace
+      .trim()
+      .toLowerCase();
   }
 
+  // ─── Stage 1: Strict Pre-Filters ───────────────────────────
+
+  _passesPreFilters(scheme, voterOcc, voterArea, voterGender) {
+    // FILTER 1: Must be active
+    if (!scheme._isActive) return false;
+
+    // FILTER 2: Gender gate — women-only schemes ONLY for Female
+    if (scheme._isWomenScheme && voterGender !== 'Female') return false;
+
+    // FILTER 3: Occupation match — MANDATORY exact match
+    const schemeOcc = scheme._normalizedOccupation;
+    if (schemeOcc && voterOcc && schemeOcc !== voterOcc) return false;
+
+    // FILTER 4: Area match — MANDATORY (exact or "All"/"Both")
+    const schemeArea = scheme._normalizedArea;
+    if (schemeArea && schemeArea !== 'All' && schemeArea !== 'Both') {
+      if (schemeArea !== voterArea) return false;
+    }
+
+    return true;
+  }
+
+  // ─── Stage 2: Scoring Components ────────────────────────────
+
   /**
-   * Compute Interest-based boost. Matches voter interests with scheme issue/description.
+   * Interest alignment — THE primary decision factor.
+   * Returns: { score: 0-1, level: 'exact'|'related'|'weak'|'none' }
    */
-  _computeInterestBoost(scheme, voterInterests) {
-    if (!voterInterests || !voterInterests.length) return 1.0;
+  _scoreInterest(scheme, voterInterests) {
+    const schemeInterest = scheme._normalizedInterest;
 
-    const schemeText = `${scheme.scheme_name || ""} ${scheme.issue_targeted || ""} ${scheme.description || ""}`.toLowerCase();
+    // Scheme has no target interest → mildly applicable
+    if (!schemeInterest) return { score: 0.25, level: 'generic' };
 
-    let bonus = 1.0;
-    for (const interest of voterInterests) {
-      const normalizedInterest = interest.toLowerCase();
+    const interests = (voterInterests || []).map(i => i.toLowerCase().trim());
 
-      if (schemeText.includes(normalizedInterest)) {
-        bonus = Math.max(bonus, 1.25);
-      } else if (INTEREST_TO_SCHEME_ISSUES[normalizedInterest]) {
-        const mapIssues = INTEREST_TO_SCHEME_ISSUES[normalizedInterest].map((i) => i.toLowerCase());
-        const schemeIssue = (scheme.issue_targeted || "").toLowerCase();
-        if (mapIssues.some((i) => schemeIssue.includes(i))) {
-          bonus = Math.max(bonus, 1.2);
+    // Voter has no interest data → conservative
+    if (interests.length === 0) return { score: 0.10, level: 'no-data' };
+
+    // EXACT match — strongest signal
+    if (interests.includes(schemeInterest)) return { score: 1.0, level: 'exact' };
+
+    // RELATED group match — check bidirectionally
+    for (const [group, related] of Object.entries(INTEREST_RELATIONS)) {
+      const groupAll = [group, ...related];
+      if (groupAll.includes(schemeInterest)) {
+        if (interests.some(vi => groupAll.includes(vi))) {
+          return { score: 0.45, level: 'related' };
         }
       }
     }
 
-    return bonus;
+    // NO match at all
+    return { score: 0.0, level: 'none' };
   }
 
   /**
-   * Compute a deadline proximity factor.
-   * Schemes with approaching deadlines get a slight boost (urgency signal).
-   * Returns a multiplier between 1.0 and 1.2.
+   * Age relevance score (0-1).
    */
-  _computeDeadlineFactor(scheme) {
-    if (!scheme.deadline) return 1.0;
+  _scoreAge(scheme, voterAge) {
+    if (!voterAge || voterAge <= 0) return 0.5;
 
-    const now = new Date();
-    const deadline = new Date(scheme.deadline);
-    const daysUntil = (deadline - now) / (1000 * 60 * 60 * 24);
+    const affinityRule = AGE_AFFINITY[scheme._normalizedBenefit]
+                      || AGE_AFFINITY[scheme._normalizedInterest];
+    if (!affinityRule) return 0.5;
 
-    if (daysUntil < 0) return 0.5;       // Expired — penalize
-    if (daysUntil <= 90) return 1.2;      // Urgent — slight boost
-    if (daysUntil <= 180) return 1.1;     // Approaching — minor boost
-    return 1.0;
+    const { minAge, maxAge, peak } = affinityRule;
+
+    if (voterAge < minAge - 5 || voterAge > maxAge + 5) return 0.1;
+
+    if (voterAge >= minAge && voterAge <= maxAge) {
+      const distance = Math.abs(voterAge - peak);
+      const maxDistance = Math.max(peak - minAge, maxAge - peak, 1);
+      return 1.0 - (distance / maxDistance) * 0.4; // range: 0.60–1.00
+    }
+
+    return 0.25;
   }
 
   /**
-   * ══════════════════════════════════════════════════════════════
-   * CORE RECOMMENDATION ENGINE
-   * ══════════════════════════════════════════════════════════════
-   *
-   * Given ML probability scores for a voter, traverse ALL category
-   * edges in the graph, compute aggregated relevance for each scheme,
-   * and return the top N most relevant schemes.
-   *
-   * @param {Object} mlScores - ML probability distribution
-   *   e.g. { Student: 0.65, Worker: 0.25, Farmer: 0.08, Senior: 0.00, Others: 0.02 }
-   * @param {Object} options - Additional context
-   *   - boothIssue: string (booth issue text for relevance boosting)
-   *   - gender: "Male"|"Female"|"Other" (for women scheme handling)
-   *   - topN: number (how many schemes to return, default 3)
-   * @returns {Array<Object>} Top N schemes with relevance scores and reasoning
+   * Normalized priority (0-1).
    */
-  async recommend(mlScores, options = {}) {
+  _scorePriority(scheme) {
+    return Math.min((scheme.priority_score || 0) / this._maxPriority, 1.0);
+  }
+
+  /**
+   * Gender-fit bonus (0-1). Only a scoring signal; the hard gate is in Stage 1.
+   */
+  _scoreGenderFit(scheme, voterGender) {
+    if (scheme._isWomenScheme && voterGender === 'Female') return 1.0;
+    return 0.5;
+  }
+
+  /**
+   * Benefit quality signal — prefers concrete benefit types.
+   */
+  _scoreBenefitQuality(scheme) {
+    const b = scheme._normalizedBenefit;
+    if (['loan', 'subsidy', 'healthcare', 'pension'].includes(b)) return 1.0;
+    if (['training', 'job opportunities'].includes(b)) return 0.8;
+    if (b === 'support') return 0.4;
+    return 0.5;
+  }
+
+  // ─── Stage 2: Composite Score ───────────────────────────────
+
+  /**
+   * Compute the final relevance score using MULTIPLICATIVE INTEREST GATING.
+   *
+   * The interest multiplier ensures that scores for non-matching schemes
+   * are hard-capped at low percentages, creating real differentiation.
+   */
+  _computeScore(interestResult, ageScore, priorityScore, genderFitScore, benefitScore) {
+    // Base score from non-interest factors
+    const baseScore =
+      0.35 * priorityScore +
+      0.30 * ageScore +
+      0.20 * genderFitScore +
+      0.15 * benefitScore;
+
+    // Interest multiplier — the key innovation
+    let interestMultiplier;
+    switch (interestResult.level) {
+      case 'exact':    interestMultiplier = 1.0;  break;  // full score
+      case 'related':  interestMultiplier = 0.65; break;  // moderate reduction
+      case 'generic':  interestMultiplier = 0.45; break;  // scheme has no specific interest
+      case 'weak':     interestMultiplier = 0.30; break;  // voter has weak data
+      case 'no-data':  interestMultiplier = 0.25; break;  // voter has no interest data
+      case 'none':     interestMultiplier = 0.20; break;  // ZERO match → hard cap
+      default:         interestMultiplier = 0.20; break;
+    }
+
+    // Composite: blend interest score with base, then gate by multiplier
+    const rawScore = 0.55 * interestResult.score + 0.45 * baseScore;
+    const finalScore = rawScore * interestMultiplier;
+
+    return { finalScore, interestMultiplier, baseScore, rawScore };
+  }
+
+  // ─── Stage 3: Diversity Control ─────────────────────────────
+
+  /**
+   * Pick top-N diverse schemes from ranked candidates.
+   * De-duplicates by BOTH cluster key AND scheme family name.
+   * Prefers varied benefit_types across the final set.
+   */
+  _applyDiversityControl(rankedCandidates, topN) {
+    const selected = [];
+    const usedClusters = new Set();
+    const usedFamilies = new Set();
+    const usedBenefitTypes = new Set();
+
+    // Pass 1: Pick highest-scoring from each unique family + cluster
+    for (const c of rankedCandidates) {
+      if (selected.length >= topN) break;
+      if (usedClusters.has(c._clusterKey)) continue;
+      if (usedFamilies.has(c._schemeFamily)) continue;
+
+      usedClusters.add(c._clusterKey);
+      usedFamilies.add(c._schemeFamily);
+      usedBenefitTypes.add(c.benefit_type);
+      selected.push(c);
+    }
+
+    // Pass 2: Fill remaining with different benefit types
+    if (selected.length < topN) {
+      for (const c of rankedCandidates) {
+        if (selected.length >= topN) break;
+        if (usedClusters.has(c._clusterKey) || usedFamilies.has(c._schemeFamily)) continue;
+        if (!usedBenefitTypes.has(c.benefit_type)) {
+          usedClusters.add(c._clusterKey);
+          usedFamilies.add(c._schemeFamily);
+          usedBenefitTypes.add(c.benefit_type);
+          selected.push(c);
+        }
+      }
+    }
+
+    // Pass 3: Final fill with any remaining unique schemes
+    if (selected.length < topN) {
+      for (const c of rankedCandidates) {
+        if (selected.length >= topN) break;
+        if (usedClusters.has(c._clusterKey) || usedFamilies.has(c._schemeFamily)) continue;
+        usedClusters.add(c._clusterKey);
+        usedFamilies.add(c._schemeFamily);
+        selected.push(c);
+      }
+    }
+
+    return selected;
+  }
+
+  // ─── Main Recommend ─────────────────────────────────────────
+
+  async recommend(voterProfile, options = { topN: 3 }) {
     await this.ensureBuilt();
 
-    const { boothIssue = "", gender = "Other", age = 0, topN = 3 } = options;
+    const { occupation, interests, area_type, gender, age } = voterProfile;
 
-    const schemeRelevanceScores = [];
+    const voterOcc    = (occupation || '').toLowerCase().trim();
+    const voterArea   = (area_type || '').trim();
+    const voterGender = (gender || '').trim();
+
+    const candidates = [];
 
     for (const scheme of this.schemes) {
-      // Skip Women-only schemes for non-female voters
-      if (scheme.category === "Women" && gender !== "Female") continue;
+      // ── STAGE 1: STRICT PRE-FILTERS ──
+      if (!this._passesPreFilters(scheme, voterOcc, voterArea, voterGender)) continue;
 
-      // Age gate: JSSK is a maternity scheme for pregnant women — skip for 45+
-      if (scheme.scheme_id === "SCH027" && age >= 45) continue;
+      // ── STAGE 2: MULTIPLICATIVE INTEREST-GATED SCORING ──
+      const interestResult = this._scoreInterest(scheme, interests);
+      const ageScore       = this._scoreAge(scheme, age);
+      const priScore       = this._scorePriority(scheme);
+      const genScore       = this._scoreGenderFit(scheme, voterGender);
+      const benScore       = this._scoreBenefitQuality(scheme);
 
-      const edgeWeights = this.edges.get(scheme.scheme_id);
-      if (!edgeWeights) continue;
+      const { finalScore, interestMultiplier, baseScore } =
+        this._computeScore(interestResult, ageScore, priScore, genScore, benScore);
 
-      // ── Aggregated multi-category relevance ──
-      // relevance = SUM( ml_score[cat] * edge_weight[cat→scheme] )
-      let rawRelevance = 0;
-      const contributingCategories = [];
+      // Scale to 0–100 percentage
+      const relevancePercent = Math.round(finalScore * 100);
 
-      for (const [mlCat, mlScore] of Object.entries(mlScores)) {
-        const edgeWeight = edgeWeights.get(mlCat) || 0;
-        const contribution = mlScore * edgeWeight;
+      // ── BUILD MATCH EXPLANATION ──
+      const reasons = [];
+      reasons.push(`Occupation: ${occupation || 'N/A'} ✓`);
+      reasons.push(`Area: ${area_type || 'N/A'} ✓`);
 
-        if (contribution > 0.01) {
-          rawRelevance += contribution;
-          contributingCategories.push({
-            category: mlCat,
-            mlScore: mlScore,
-            edgeWeight: edgeWeight,
-            contribution: Number(contribution.toFixed(4)),
-          });
-        }
+      // Interest detail
+      if (interestResult.level === 'exact') {
+        reasons.push(`Interest: ${(interests || []).join(', ')} ✓ (exact match)`);
+      } else if (interestResult.level === 'related') {
+        reasons.push(`Interest: related to ${scheme.target_interest} (~)`);
+      } else if (interestResult.level === 'generic') {
+        reasons.push(`Interest: scheme is general-purpose`);
+      } else if (interestResult.level === 'none') {
+        reasons.push(`Interest: no match ✗ (score capped)`);
+      } else {
+        reasons.push(`Interest: limited data`);
       }
 
-      // Women bonus for female voters (additive, not replacing)
-      if (gender === "Female" && scheme.category === "Women") {
-        // Use the max ML score as a proxy for relevance
-        const maxMlScore = Math.max(...Object.values(mlScores));
-        const womenBonus = maxMlScore * 0.4;
-        rawRelevance += womenBonus;
-        contributingCategories.push({
-          category: "Women (gender bonus)",
-          mlScore: maxMlScore,
-          edgeWeight: 0.4,
-          contribution: Number(womenBonus.toFixed(4)),
-        });
+      // Gender
+      if (scheme._isWomenScheme && voterGender === 'Female') {
+        reasons.push(`Gender: Women-focused ✓`);
+      } else {
+        reasons.push(`Gender: eligible ✓`);
       }
 
-      // ── Apply contextual multipliers ──
-      const issueBoost = this._computeIssueBoost(scheme, boothIssue);
-      const deadlineFactor = this._computeDeadlineFactor(scheme);
-      const occupationBoost = this._computeOccupationBoost(scheme, options.occupation);
-      const interestBoost = this._computeInterestBoost(scheme, options.interests);
+      // Age
+      if (ageScore >= 0.8) reasons.push(`Age: ${age}y — ideal range ✓`);
+      else if (ageScore >= 0.5) reasons.push(`Age: ${age}y — suitable`);
+      else if (ageScore > 0.2) reasons.push(`Age: ${age}y — partial fit`);
 
-      const finalRelevance = rawRelevance * issueBoost * deadlineFactor * occupationBoost * interestBoost;
-
-      if (finalRelevance > 0) {
-        schemeRelevanceScores.push({
-          scheme_id: scheme.scheme_id,
-          scheme_name: scheme.scheme_name,
-          category: scheme.category,
-          issue_targeted: scheme.issue_targeted,
-          description: scheme.description,
-          deadline: scheme.deadline,
-          _id: scheme._id,
-          relevanceScore: Number(finalRelevance.toFixed(4)),
-          reasoning: {
-            rawRelevance: Number(rawRelevance.toFixed(4)),
-            issueBoost,
-            deadlineFactor,
-            contributingCategories,
-          },
-        });
-      }
+      candidates.push({
+        scheme_id:       scheme.scheme_id,
+        scheme_name:     scheme.scheme_name,
+        name:            scheme.scheme_name,
+        description:     scheme.description,
+        category:        scheme.target_occupation,
+        target_interest: scheme.target_interest,
+        area_type:       scheme.area_type,
+        benefit_type:    scheme.benefit_type,
+        eligibility:     scheme.eligibility,
+        priority_score:  scheme.priority_score,
+        relevanceScore:  relevancePercent,
+        score:           relevancePercent,
+        matchReasons:    reasons,
+        _clusterKey:     scheme._clusterKey,
+        _schemeFamily:   scheme._schemeFamily,
+        _breakdown: {
+          interestScore:      +(interestResult.score.toFixed(3)),
+          interestLevel:       interestResult.level,
+          interestMultiplier: +(interestMultiplier.toFixed(2)),
+          ageScore:           +(ageScore.toFixed(3)),
+          priorityScore:      +(priScore.toFixed(3)),
+          genderFitScore:     +(genScore.toFixed(3)),
+          benefitScore:       +(benScore.toFixed(3)),
+          baseScore:          +(baseScore.toFixed(4)),
+          finalScore:         +(finalScore.toFixed(4)),
+        },
+      });
     }
 
-    // Sort by relevance score (descending) and return top N
-    schemeRelevanceScores.sort((a, b) => b.relevanceScore - a.relevanceScore);
-    return schemeRelevanceScores.slice(0, topN);
+    // Deterministic sort: score desc → priority desc → scheme_id asc
+    candidates.sort((a, b) => {
+      if (b.relevanceScore !== a.relevanceScore) return b.relevanceScore - a.relevanceScore;
+      if ((b.priority_score || 0) !== (a.priority_score || 0)) return (b.priority_score || 0) - (a.priority_score || 0);
+      return (a.scheme_id || '').localeCompare(b.scheme_id || '');
+    });
+
+    // ── STAGE 3: DIVERSITY CONTROL ──
+    const diverse = this._applyDiversityControl(candidates, options.topN);
+
+    // Clean internal keys before returning
+    return diverse.map(({ _clusterKey, _schemeFamily, ...rest }) => rest);
   }
 }
 
-// ─── Singleton Instance ────────────────────────────────────────────
-// The graph is built once and shared across all requests.
-const knowledgeGraph = new KnowledgeGraph();
 
-// ─── Exported API ──────────────────────────────────────────────────
+// ─── Singleton + Backward-Compatible Exports ───────────────────────
 
-/**
- * Get scheme recommendations for a voter using multi-category graph traversal.
- *
- * @param {Object} mlScores - Full ML probability distribution
- * @param {string} boothIssue - Booth issue text
- * @param {string} gender - Voter's gender
- * @param {number} topN - Number of schemes to return
- * @returns {Array<Object>} Ranked scheme recommendations with relevance scores
- */
-const getRecommendedSchemes = async (mlScores, boothIssue = "", gender = "Other", age = 0, interests = [], occupation = "", topN = 3) => {
-  return knowledgeGraph.recommend(mlScores, {
-    boothIssue,
-    gender,
-    age,
-    interests,
-    occupation,
-    topN,
-  });
-};
+const recommender = new PersonalizedRecommender();
 
 /**
- * Force rebuild the knowledge graph (e.g., after scheme data changes).
+ * Top-level entry point — same signature as v1/v2 for backward compatibility.
  */
-const rebuildGraph = async () => {
-  knowledgeGraph.isBuilt = false;
-  await knowledgeGraph.build();
-};
-
-// Legacy compatibility — still works if called from old code
-const getSchemesFromCategoryAndIssue = async (category) => {
-  const normalizedCategory = SCHEME_TO_ML_CATEGORY[category]
-    ? category
-    : Object.keys(SCHEME_TO_ML_CATEGORY).find(
-        (k) => SCHEME_TO_ML_CATEGORY[k] === category
-      ) || category;
-
-  try {
-    return await Scheme.find({ category: normalizedCategory }).lean();
-  } catch (error) {
-    console.error(error);
-    return [];
+const getRecommendedSchemes = async (
+  mlScores,
+  boothIssue = '',
+  gender = 'Other',
+  age = 0,
+  interests = [],
+  occupation = '',
+  areaType = 'Rural',
+  topN = 3
+) => {
+  // Derive occupation from ML scores if voter has no direct occupation
+  let derivedOccupation = occupation;
+  if (!derivedOccupation && mlScores) {
+    const categories = Object.keys(mlScores).filter(k => typeof mlScores[k] === 'number');
+    if (categories.length > 0) {
+      derivedOccupation = categories.reduce((a, b) => mlScores[a] > mlScores[b] ? a : b);
+    }
   }
+
+  return recommender.recommend(
+    {
+      occupation: derivedOccupation,
+      interests,
+      area_type: areaType,
+      gender,
+      age,
+      mlScores,
+    },
+    { topN }
+  );
+};
+
+const rebuildGraph = async () => {
+  recommender.isBuilt = false;
+  await recommender.build();
 };
 
 module.exports = {
+  knowledgeGraph: recommender,
   getRecommendedSchemes,
-  getSchemesFromCategoryAndIssue,
   rebuildGraph,
 };

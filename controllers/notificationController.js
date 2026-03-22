@@ -6,8 +6,9 @@ const { logNotificationBatch, getLoggedCategories, getLoggedCategoryStatus } = r
 const CATEGORY_MAP = {
   Farmers: "Farmer",
   Students: "Student",
-  "Senior Citizens": "Senior",
+  "Senior Citizens": "Senior Citizen",
   Workers: "Worker",
+  Women: "Women",
   Others: "Others",
 };
 
@@ -28,40 +29,65 @@ const sendNotification = async (req, res) => {
       });
     }
 
-    // Use the segmentation pipeline to determine the target voter list
+    // Use the segmentation + personalized recommender pipeline
     const { grouped } = await processBoothData(boothId);
     const targetCategory = getCategoryKey(category);
     const voters = grouped[targetCategory] || [];
 
-    // Generate delivery logs (all delivered, no artificial failure markers)
+    // Generate per-voter delivery logs with personalized scheme recommendations
     const logs = voters.map((voter) => {
+      // Use the personalized recommender output (top 1–3 ranked schemes per voter)
+      // These have already been filtered by gender, area, occupation, interest, and active dates
+      const personalizedSchemes = (voter.schemes && voter.schemes.length > 0)
+        ? voter.schemes.slice(0, 3)
+        : [];
+
+      // Build scheme summary for this voter
+      const schemeNames = personalizedSchemes.map(s => s.name || s.scheme_name);
+      const schemeScores = personalizedSchemes.map(s => `${s.name || s.scheme_name}(${s.relevanceScore || 0}%)`);
+      const matchReasons = personalizedSchemes.flatMap(s => s.matchReasons || []);
+
       return {
         voterId: voter._id || voter.id || null,
         voterName: voter.name || "",
-        schemeId: schemeIds[Math.floor(Math.random() * schemeIds.length)],
-        schemeName: schemeIds[Math.floor(Math.random() * schemeIds.length)],
+        voterMobile: voter.mobileNumber || voter.mobile || "N/A",
+        schemeId: personalizedSchemes.map(s => s.scheme_id).join(" + "),
+        schemeName: schemeNames.join(", "),
+        relevanceScores: schemeScores.join(", "),
+        matchReasons: matchReasons.join("; "),
         status: "sent",
         channel: deliveryMethod,
         timestamp: new Date(),
       };
     });
 
-    // ─── Console Notification Log (placeholder for future SMS/WhatsApp) ───
-    console.log("\n╔══════════════════════════════════════════════════════════╗");
-    console.log("║           📢 NOTIFICATION DISPATCHED                    ║");
-    console.log("╠══════════════════════════════════════════════════════════╣");
+    // ─── Console Notification Log ───
+    const sentCount = logs.filter(l => l.status === "sent").length;
+    console.log("\n╔═══════════════════════════════════════════════════════════════════╗");
+    console.log("║           📢 PERSONALIZED NOTIFICATION DISPATCHED               ║");
+    console.log("╠═══════════════════════════════════════════════════════════════════╣");
     console.log(`║  Category   : ${category}`);
     console.log(`║  Booth      : ${boothId}`);
-    console.log(`║  Schemes    : ${schemeIds.join(", ")}`);
     console.log(`║  Voters     : ${voters.length} targeted`);
     console.log(`║  Channel    : ${deliveryMethod}`);
-    console.log(`║  Delivered  : ${logs.filter(l => l.status === "delivered").length}`);
-    console.log(`║  Failed     : ${logs.filter(l => l.status === "failed").length}`);
-    console.log("╠══════════════════════════════════════════════════════════╣");
-    // Print first 5 voter names as sample
-    const sampleVoters = voters.slice(0, 5).map(v => v.name || "Unknown");
-    console.log(`║  Sample     : ${sampleVoters.join(", ")}${voters.length > 5 ? ` ... +${voters.length - 5} more` : ""}`);
-    console.log("╚══════════════════════════════════════════════════════════╝\n");
+    console.log(`║  Delivered  : ${sentCount}`);
+    console.log("╠═══════════════════════════════════════════════════════════════════╣");
+    console.log("║  📋 PERSONALIZED RECOMMENDATIONS (sample):                      ║");
+    console.log("╠═══════════════════════════════════════════════════════════════════╣");
+
+    // Show first 5 voters with their personalized schemes
+    const sampleLogs = logs.slice(0, 5);
+    sampleLogs.forEach((log) => {
+      console.log(`║  👤 ${log.voterName} (${log.voterMobile})`);
+      console.log(`║     Schemes: ${log.schemeName || "None matched"}`);
+      console.log(`║     Scores:  ${log.relevanceScores || "N/A"}`);
+      console.log(`║     Reason:  ${log.matchReasons || "N/A"}`);
+      console.log("║  ─────────────────────────────────────────────────────────────  ║");
+    });
+    if (voters.length > 5) {
+      console.log(`║  ... +${voters.length - 5} more voters with personalized schemes           ║`);
+    }
+    console.log("╚═══════════════════════════════════════════════════════════════════╝\n");
 
     // ─── Notification Log File ───
     logNotificationBatch({ 

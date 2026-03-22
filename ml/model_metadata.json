@@ -1,8 +1,7 @@
 {
   "categories": [
     "Farmer",
-    "Others",
-    "Senior",
+    "Senior Citizen",
     "Student",
     "Worker"
   ],
@@ -16,18 +15,15 @@
     "issue_worker",
     "age_bucket"
   ],
-  "training_samples": 50000,
-  "test_accuracy": 0.596,
-  "cv_accuracy_mean": 0.58912,
-  "cv_accuracy_std": 0.004407448241329677,
+  "training_samples": 10000,
   "feature_importance": {
-    "age": 0.42164825272893497,
-    "gender_enc": 0.007665694213977776,
-    "area_type_enc": 0.25708354118966426,
-    "issue_student": 0.02434932360055531,
-    "issue_farmer": 0.07422833767293191,
-    "issue_senior": 0.014015114139358794,
-    "issue_worker": 0.0198856574812947,
-    "age_bucket": 0.1811240789732823
+    "age": 0.49647551541231605,
+    "gender_enc": 0.0008908479666123211,
+    "area_type_enc": 0.07630807771414383,
+    "issue_student": 0.0007648452683983362,
+    "issue_farmer": 0.001306875296925512,
+    "issue_senior": 0.0004860122232529348,
+    "issue_worker": 0.0030003259735428274,
+    "age_bucket": 0.4207675001448081
   }
 }

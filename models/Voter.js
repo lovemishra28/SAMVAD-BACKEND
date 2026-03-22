@@ -17,6 +17,14 @@ const voterSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  city: {
+    type: String,
+    default: "",
+  },
+  area_type: {
+    type: String,
+    enum: ["Urban", "Semi-Urban", "Rural"],
+  },
   address: {
     type: String,
   },
