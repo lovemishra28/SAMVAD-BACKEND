@@ -1,4 +1,5 @@
 const Notification = require("../models/Notification");
+const NotificationDelivery = require("../models/NotificationDelivery");
 const { processBoothData } = require("../services/boothService");
 const { logNotificationBatch, getLoggedCategories, getLoggedCategoryStatus } = require("../utils/logger");
 
@@ -108,6 +109,28 @@ const sendNotification = async (req, res) => {
       deliveryMethod,
       logs,
     });
+
+    // ─── Write per-voter NotificationDelivery docs for mobile API ───
+    const deliveryDocs = logs
+      .filter(l => l.voterMobile && l.voterMobile !== "N/A")
+      .map(l => ({
+        mobileNumber: l.voterMobile,
+        voterName: l.voterName,
+        schemeNames: l.schemeName ? l.schemeName.split(", ") : [],
+        schemeIds: l.schemeId ? l.schemeId.split(" + ") : [],
+        category,
+        boothId,
+        relevanceScores: l.relevanceScores || "",
+        matchReasons: l.matchReasons || "",
+        sentAt: new Date(),
+      }));
+
+    if (deliveryDocs.length > 0) {
+      await NotificationDelivery.insertMany(deliveryDocs).catch(err => {
+        console.error("[Notification] Failed to write delivery docs:", err.message);
+      });
+      console.log(`[Notification] ${deliveryDocs.length} delivery records saved for mobile API`);
+    }
 
     res.status(201).json({ success: true, notification: record, votersNotified: voters.length });
   } catch (error) {
