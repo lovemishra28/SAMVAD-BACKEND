@@ -3,12 +3,15 @@ const mongoose = require("mongoose");
 const notificationLogSchema = new mongoose.Schema({
   voterId: String,
   voterName: String,
+  voterMobile: String,
   schemeId: String,
   schemeName: String,
+  relevanceScores: String,
+  matchReasons: String,
   status: {
     type: String,
-    enum: ["delivered", "failed"],
-    default: "delivered",
+    enum: ["sent", "delivered", "failed"],
+    default: "sent",
   },
   channel: {
     type: String,

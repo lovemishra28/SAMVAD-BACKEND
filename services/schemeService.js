@@ -34,19 +34,19 @@ const getSchemeStatus = (deadline) => {
  * Map a scheme document into the API response shape.
  */
 const formatScheme = (scheme) => {
-  const daysUntilDeadline = getDaysUntilDeadline(scheme.deadline);
-  const status = getSchemeStatus(scheme.deadline);
+  const daysUntilDeadline = getDaysUntilDeadline(scheme.end_date || scheme.deadline);
+  const status = getSchemeStatus(scheme.end_date || scheme.deadline);
 
   return {
     // Preserve existing property names for frontend compatibility
     id: scheme.scheme_id,
     name: scheme.scheme_name,
-    registrationDeadline: scheme.deadline,
-    deadline: scheme.deadline,
-    issue_targeted: scheme.issue_targeted,
+    registrationDeadline: scheme.end_date || scheme.deadline,
+    deadline: scheme.end_date || scheme.deadline,
+    issue_targeted: scheme.target_interest || scheme.issue_targeted,
     scheme_id: scheme.scheme_id,
     scheme_name: scheme.scheme_name,
-    category: scheme.category,
+    category: scheme.target_occupation || scheme.category,
     description: scheme.description,
     status,
     daysUntilDeadline,
@@ -57,7 +57,10 @@ const getSchemes = async (category) => {
   const filter = {};
   if (category) {
     // Allow passing either the ML category or the frontend category (case-insensitive)
-    filter.category = { $regex: new RegExp(`^${category}$`, "i") };
+    filter.$or = [
+      { target_occupation: { $regex: new RegExp(`^${category}$`, "i") } },
+      { category: { $regex: new RegExp(`^${category}$`, "i") } }
+    ];
   }
 
   try {

@@ -18,6 +18,18 @@ const makeMobileNumber = (index) => {
   return String(num).padStart(10, "0");
 };
 
+const normalizeCityFromAddress = (address) => {
+  if (!address || !String(address).trim()) return "";
+  let city = String(address).trim();
+
+  // remove known area suffixes
+  city = city.replace(/\b(Semi-Urban|SemiUrban|Urban|Rural|District|City|Area|Tehsil)\b/gi, "").trim();
+
+  // usually address is "City X", or "City"; we keep the primary city token
+  const tokens = city.split(/\s+/).filter(Boolean);
+  return tokens.length > 0 ? tokens[0] : "";
+};
+
 const importData = async () => {
   try {
     // Clear old data
@@ -33,14 +45,31 @@ const importData = async () => {
     const booths = await csv().fromFile("./data/BoothsData.csv");
 
     // Normalize CSV fields to match Mongoose schemas
-    const votersToInsert = voters.map((v, idx) => ({
-      ...v,
-      boothId: v.booth_id,
-      mobileNumber: v.mobileNumber ? String(v.mobileNumber).trim() : makeMobileNumber(idx),
-      occupation: v.Occupation || "",
-      interests: v.Interests ? v.Interests.split(",").map(i => i.trim()) : []
-      // keep original CSV fields for traceability if desired
-    }));
+    const boothCityMap = booths.reduce((map, b) => {
+      const key = String(b.district || "").trim().toLowerCase();
+      if (key) map[key] = b.id;
+      return map;
+    }, {});
+
+    const votersToInsert = voters.map((v, idx) => {
+      const city = v.city || "";
+      const normalizedCity = city.trim().toLowerCase();
+      const mappedBoothId = boothCityMap[normalizedCity];
+      const chosenBoothId = mappedBoothId || v.booth_id;
+
+      if (mappedBoothId && v.booth_id && v.booth_id !== mappedBoothId) {
+        console.log(`Remapping voter ${v.name} city=${city} booth ${v.booth_id} -> ${mappedBoothId}`);
+      }
+
+      return {
+        ...v,
+        city,
+        boothId: chosenBoothId,
+        mobileNumber: v.mobileNumber ? String(v.mobileNumber).trim() : makeMobileNumber(idx),
+        occupation: v.Occupation || "",
+        interests: v.Interests ? v.Interests.split(",").map(i => i.trim()) : [],
+      };
+    });
 
     const contextsToInsert = contexts.map(c => ({
       ...c,
@@ -68,3 +97,4 @@ const importData = async () => {
 };
 
 importData();
+

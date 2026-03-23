@@ -34,52 +34,75 @@ const { getBaseScores, applyContextBoost, getFinalCategoryAndConfidence } = requ
  * @returns {{ predictions: Array<Object>, engineInfo: Object }}
  */
 const classifyVotersBatch = async (voters, context) => {
+  const validBaseCats = ["Farmer", "Worker", "Student", "Senior Citizen", "Women"];
+  
+  const predictions = new Array(voters.length);
+  const votersToML = [];
+
+  // 1. Direct mapping for known DB occupations
+  voters.forEach((voter, idx) => {
+    let primaryCat = validBaseCats.includes(voter.occupation) ? voter.occupation : null;
+    if (!primaryCat && voter.category && validBaseCats.includes(voter.category)) primaryCat = voter.category;
+    
+    // Explicit override for "Senior Citizen" if age > 60
+    if (!primaryCat && voter.age > 60) primaryCat = "Senior Citizen";
+
+    if (primaryCat) {
+      const scores = { Farmer: 0, Worker: 0, Student: 0, "Senior Citizen": 0, Women: 0, Others: 0 };
+      scores[primaryCat] = 1;
+      
+      predictions[idx] = {
+        category: primaryCat,
+        confidence: 1.0,
+        scores,
+      };
+    } else {
+      votersToML.push({ voter, idx });
+    }
+  });
+
   const mlHealthy = await isServiceHealthy();
 
-  if (mlHealthy) {
-    console.log("Using ML classifier for voter classification");
+  if (votersToML.length > 0) {
+    if (mlHealthy) {
+      console.log(`Using ML classifier for ${votersToML.length} voters`);
+      try {
+        const voterPayloads = votersToML.map(({ voter }) => ({
+          age: voter.age,
+          gender: voter.gender || "Other",
+          area_type: voter.area_type || context?.areaType || "Urban",
+          issue: context?.issue || "",
+        }));
 
-    try {
-      const voterPayloads = voters.map((voter) => ({
-        age: voter.age,
-        gender: voter.gender || "Other",
-        area_type: context?.areaType || "Urban",
-        issue: context?.issue || "",
-      }));
+        const mlPredictions = await classifyVoters(voterPayloads);
+        votersToML.forEach(({ idx }, i) => {
+          predictions[idx] = mlPredictions[i];
+        });
 
-      const predictions = await classifyVoters(voterPayloads);
-      return {
-        predictions,
-        engineInfo: {
-          engine: "ml",
-          status: "active",
-          message: "Classification powered by ML model (Gradient Boosted Classifier with calibrated probabilities)",
-        },
-      };
-    } catch (err) {
-      console.warn("ML classification failed, falling back to rule-based engine:", err.message);
-      return {
-        predictions: fallbackClassify(voters, context),
-        engineInfo: {
-          engine: "rule-based",
-          status: "fallback",
-          message: "ML service encountered an error -- using rule-based classification as fallback",
-          reason: err.message,
-        },
-      };
+      } catch (err) {
+        console.warn("ML classification failed, falling back to rule-based engine:", err.message);
+        const fallbackPredictions = fallbackClassify(votersToML.map(v => v.voter), context);
+        votersToML.forEach(({ idx }, i) => {
+          predictions[idx] = fallbackPredictions[i];
+        });
+      }
+    } else {
+      console.log(`ML service unavailable -- using rule-based fallback for ${votersToML.length} voters`);
+      const fallbackPredictions = fallbackClassify(votersToML.map(v => v.voter), context);
+      votersToML.forEach(({ idx }, i) => {
+        predictions[idx] = fallbackPredictions[i];
+      });
     }
-  } else {
-    console.log("ML service unavailable -- using rule-based fallback");
-    return {
-      predictions: fallbackClassify(voters, context),
-      engineInfo: {
-        engine: "rule-based",
-        status: "fallback",
-        message: "ML service is not running -- using rule-based classification as fallback",
-        reason: "ML service health check failed (is classifier_service.py running?)",
-      },
-    };
   }
+
+  return {
+    predictions,
+    engineInfo: {
+      engine: votersToML.length === 0 ? "db-mapping" : (mlHealthy ? "hybrid-ml" : "fallback-rules"),
+      status: "active",
+      message: `Directly mapped ${voters.length - votersToML.length} voters from DB. Analyzed ${votersToML.length} remaining voters using AI.`,
+    },
+  };
 };
 
 /**
@@ -87,7 +110,8 @@ const classifyVotersBatch = async (voters, context) => {
  */
 const fallbackClassify = (voters, context) => {
   return voters.map((voter) => {
-    const baseScores = getBaseScores(voter.age);
+    const area = voter.area_type || context?.areaType || "Urban";
+    const baseScores = getBaseScores(voter.age, area);
     const updatedScores = applyContextBoost(baseScores, context?.issue || "", voter.gender);
     const confidence = Math.max(...Object.values(updatedScores));
     const { finalCategory: category } = getFinalCategoryAndConfidence(updatedScores);
@@ -121,23 +145,27 @@ const processBoothData = async (boothId) => {
   // Step 3: Classify all voters (ML or fallback)
   const { predictions: classifications, engineInfo } = await classifyVotersBatch(voters, context);
 
-  // Step 4: Feed scores into Knowledge Graph for multi-category recommendations
+  // Step 4: Feed voter profiles into the Personalized Recommender (v2)
+  // Pipeline: Strict pre-filters (date, gender, occupation, area) →
+  //           Weighted scoring (interest, age, priority, genderFit, diversity) →
+  //           Diversity control (cluster dedup) → Top-3 ranked output
   const processed = await Promise.all(
     voters.map(async (voter, index) => {
       const { category, confidence, scores } = classifications[index];
 
-      // Knowledge Graph traversal using FULL probability distribution
-      // This is the key improvement: instead of passing only the top category,
-      // we pass the entire score distribution so the graph can weigh schemes
-      // from ALL relevant categories.
+      const voterInterests = Array.isArray(voter.interests)
+        ? voter.interests
+        : (typeof voter.interests === 'string' ? [voter.interests] : []);
+
       const recommendedSchemes = await getRecommendedSchemes(
-        scores,
-        boothIssue,
-        voter.gender,
-        voter.age,
-        Array.isArray(voter.interests) ? voter.interests : (typeof voter.interests === 'string' ? [voter.interests] : []),
-        voter.occupation || '',
-        3 // Top 3 recommendations
+        scores,                                // full ML probability distribution
+        boothIssue,                            // booth-level issue context
+        voter.gender,                          // gender for hard filter + scoring
+        voter.age,                             // age (reserved for future rules)
+        voterInterests,                        // interest matching
+        voter.occupation || '',                // occupation matching
+        voter.area_type || context?.areaType || "Rural",  // area matching
+        3                                      // top 3 most relevant schemes
       );
 
       return {
@@ -154,10 +182,24 @@ const processBoothData = async (boothId) => {
   // Step 5: Group by category
   const grouped = {};
   processed.forEach((v) => {
+    // Override the ML category to literally match the DB occupation if it's one of our strict categories!
+    const validBaseCats = ["Farmer", "Worker", "Student", "Senior Citizen"];
+    const primaryCat = validBaseCats.includes(v.occupation) ? v.occupation : v.category;
+    v.category = primaryCat;
+
+    // 1. Group by primary generated category
     if (!grouped[v.category]) {
       grouped[v.category] = [];
     }
     grouped[v.category].push(v);
+    
+    // 2. Add female voters to the precise distinct "Women" category
+    if (v.gender && v.gender.toLowerCase() === 'female') {
+      if (!grouped["Women"]) {
+        grouped["Women"] = [];
+      }
+      grouped["Women"].push(v);
+    }
   });
 
   return {
@@ -169,3 +211,4 @@ const processBoothData = async (boothId) => {
 };
 
 module.exports = { processBoothData };
+

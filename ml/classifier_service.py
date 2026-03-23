@@ -73,7 +73,7 @@ def extract_features(voter_data):
     issue = (voter_data.get("issue") or "").lower()
     
     issue_student = 1 if any(kw in issue for kw in 
-        ["student", "youth", "skill", "job", "apprentice", "education"]) else 0
+        ["student", "youth", "job", "education"]) else 0
     issue_farmer = 1 if any(kw in issue for kw in 
         ["agriculture", "irrigation", "farmer", "crop", "krishi"]) else 0
     issue_senior = 1 if any(kw in issue for kw in 
@@ -203,3 +203,4 @@ def predict():
 if __name__ == "__main__":
     print(f"\n[START] SAMVAD ML Classification Service starting on port {PORT}...")
     app.run(host="0.0.0.0", port=PORT, debug=False)
+

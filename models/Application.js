@@ -35,10 +35,16 @@ const applicationSchema = new mongoose.Schema({
     default: () => new Date(),
   },
   portalReference: String,
+  applicantAddress: {
+    type: String,
+    default: "",
+  },
 }, { timestamps: true });
 
 applicationSchema.pre("save", function () {
   this.lastUpdated = new Date();
 });
+
+applicationSchema.index({ schemeId: 1, voterId: 1 }, { unique: true });
 
 module.exports = mongoose.model("Application", applicationSchema);

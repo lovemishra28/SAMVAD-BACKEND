@@ -75,7 +75,7 @@ def gender_to_int(gender):
 
 # ─── Probabilistic Labeling Engine ───────────────────────────────────
 
-CATEGORIES = ["Student", "Worker", "Farmer", "Senior", "Others"]
+CATEGORIES = ["Student", "Worker", "Farmer", "Senior Citizen"]
 
 def compute_category_probabilities(age, gender_enc, area_type_enc, 
                                      issue_student, issue_farmer, 
@@ -89,10 +89,10 @@ def compute_category_probabilities(age, gender_enc, area_type_enc,
     - Rural + agriculture issue: Farmer probability boosted
     - Urban + job issue: Student/Worker probability boosted
     
-    Returns a probability vector over [Student, Worker, Farmer, Senior, Others].
+    Returns a probability vector over [Student, Worker, Farmer, Senior Citizen].
     """
     # Start with uniform base weights
-    weights = np.array([1.0, 1.0, 1.0, 1.0, 1.0])  # Student, Worker, Farmer, Senior, Others
+    weights = np.array([1.0, 1.0, 1.0, 1.0])  # Student, Worker, Farmer, Senior Citizen
     
     # ═══ Age-based constraints (the core domain intelligence) ═══
     
@@ -101,56 +101,49 @@ def compute_category_probabilities(age, gender_enc, area_type_enc,
         weights[0] = 8.0   # Student
         weights[1] = 2.0   # Worker (part-time job possible)
         weights[2] = 0.5   # Farmer (unlikely for very young)
-        weights[3] = 0.0   # Senior (impossible)
-        weights[4] = 1.0   # Others
+        weights[3] = 0.0   # Senior Citizen (impossible)
         
     elif age <= 25:
         # Young adults: could be students or young workers
         weights[0] = 5.0   # Student  
         weights[1] = 4.0   # Worker
         weights[2] = 1.5   # Farmer (possible in rural)
-        weights[3] = 0.0   # Senior (impossible)
-        weights[4] = 1.0   # Others
+        weights[3] = 0.0   # Senior Citizen (impossible)
         
     elif age <= 35:
         # Working age: primarily workers
         weights[0] = 1.5   # Student (post-grad possible)
         weights[1] = 6.0   # Worker
         weights[2] = 3.0   # Farmer
-        weights[3] = 0.0   # Senior (impossible)
-        weights[4] = 1.0   # Others
+        weights[3] = 0.0   # Senior Citizen (impossible)
         
     elif age <= 50:
         # Mid-career: workers and farmers
         weights[0] = 0.2   # Student (very unlikely)
         weights[1] = 5.0   # Worker
         weights[2] = 4.5   # Farmer
-        weights[3] = 0.1   # Senior (not yet)
-        weights[4] = 1.0   # Others
+        weights[3] = 0.1   # Senior Citizen (not yet)
         
     elif age <= 60:
         # Pre-retirement: workers, farmers, approaching senior
         weights[0] = 0.05  # Student (nearly impossible)
         weights[1] = 4.0   # Worker
         weights[2] = 4.0   # Farmer
-        weights[3] = 2.0   # Senior (getting closer)  
-        weights[4] = 1.0   # Others
+        weights[3] = 2.0   # Senior Citizen (getting closer)  
         
     elif age <= 70:
         # Senior range
         weights[0] = 0.0   # Student (impossible)
         weights[1] = 1.5   # Worker (some still work)
         weights[2] = 2.0   # Farmer (some still farm)
-        weights[3] = 7.0   # Senior
-        weights[4] = 1.0   # Others
+        weights[3] = 7.0   # Senior Citizen
         
     else:
         # Elderly
         weights[0] = 0.0   # Student (impossible)
         weights[1] = 0.5   # Worker (rare)
         weights[2] = 1.0   # Farmer (possible)
-        weights[3] = 9.0   # Senior (very likely)
-        weights[4] = 0.5   # Others
+        weights[3] = 9.0   # Senior Citizen (very likely)
 
     # ═══ Area type modifiers ═══
     
@@ -173,24 +166,17 @@ def compute_category_probabilities(age, gender_enc, area_type_enc,
         
     if issue_senior:
         if age >= 50:
-            weights[3] *= 2.0   # Boost Senior only if age-appropriate
+            weights[3] *= 2.0   # Boost Senior Citizen only if age-appropriate
         weights[1] *= 1.1   # Healthcare interests workers too
         
     if issue_worker:
         weights[1] *= 1.8   # Boost Worker
-        weights[4] *= 1.3   # General issues → Others too
-
-    # ═══ Gender modifiers (subtle) ═══
-    
-    # No strong gender bias, but subtle patterns exist in the data
-    if gender_enc == 1:  # Female
-        weights[4] *= 1.1   # Slightly more likely in Others (homemaker, etc.)
 
     # ═══ Normalize to probabilities ═══
     weights = np.maximum(weights, 0)  # Ensure non-negative
     total = weights.sum()
     if total == 0:
-        return np.array([0.0, 0.2, 0.2, 0.2, 0.2, 0.2])
+        return np.array([0.25, 0.25, 0.25, 0.25])
     
     probabilities = weights / total
     return probabilities

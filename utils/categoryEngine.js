@@ -1,22 +1,31 @@
-const getBaseScores = (age) => {
-  let scores = { Student: 0, Worker: 0, Farmer: 0, Senior: 0 };
+const getBaseScores = (age, area_type) => {
+  let scores = { Student: 0, Worker: 0, Farmer: 0, "Senior Citizen": 0 };
 
   if (age < 22) {
-    scores.Student = 0.7;
-    scores.Worker = 0.3;
-  }
-  else if (age >= 22 && age <= 30) {
-    scores.Student = 0.4;
-    scores.Worker = 0.5;
-    scores.Farmer = 0.2;
-  }
-  else if (age > 30 && age <= 60) {
+    scores.Student = 0.8;
+    scores.Worker = 0.2;
+  } else if (age >= 22 && age <= 30) {
+    scores.Student = 0.3;
+    scores.Worker = 0.6;
+    scores.Farmer = 0.1;
+  } else if (age > 30 && age <= 60) {
     scores.Worker = 0.6;
     scores.Farmer = 0.4;
+  } else {
+    scores["Senior Citizen"] = 0.9;
+    scores.Worker = 0.1;
   }
-  else {
-    scores.Senior = 1.0;
-    scores.Farmer = 0.3;
+
+  if (area_type === "Rural") {
+    scores.Farmer += 0.3;
+  } else if (area_type === "Urban") {
+    scores.Worker += 0.2;
+    scores.Student += 0.1;
+    scores.Farmer -= 0.3;
+  }
+
+  for (let key in scores) {
+    scores[key] = Math.max(0, scores[key]);
   }
   return scores;
 };
@@ -25,19 +34,16 @@ const applyContextBoost = (scores, issues = "", gender = "Other") => {
   const lowerIssue = (issues || "").toLowerCase();
 
   if (lowerIssue.includes("agriculture") || lowerIssue.includes("irrigation") || lowerIssue.includes("farmer")) {
-    scores.Farmer += 0.3;
+    scores.Farmer += 0.4;
   }
   if (lowerIssue.includes("job") || lowerIssue.includes("skill")) {
     scores.Student += 0.3;
-    scores.Worker += 0.3;
+    scores.Worker += 0.4;
   }
   if (lowerIssue.includes("health") || lowerIssue.includes("pension") || lowerIssue.includes("senior")) {
-    scores.Senior += 0.3;
+    scores["Senior Citizen"] += 0.5;
   }
-  if (gender === "Female" && (lowerIssue.includes("women") || lowerIssue.includes("maternal"))) {
-    scores.Worker += 0.3;
-    scores.Student += 0.2;
-  }
+
   for (let key in scores) {
     scores[key] = Math.min(scores[key] || 0, 1.0);
   }
@@ -57,4 +63,10 @@ const getFinalCategoryAndConfidence = (scores) => {
   return { finalCategory, confidence: Number(max.toFixed(2)) };
 };
 
-module.exports = { getBaseScores, applyContextBoost, getFinalCategoryAndConfidence };
+const predictCategory = (age, area_type, issues, gender) => {
+  let scores = getBaseScores(age, area_type);
+  scores = applyContextBoost(scores, issues, gender);
+  return getFinalCategoryAndConfidence(scores).finalCategory;
+};
+
+module.exports = { getBaseScores, applyContextBoost, getFinalCategoryAndConfidence, predictCategory };

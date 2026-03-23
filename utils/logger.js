@@ -31,12 +31,14 @@ const logNotificationBatch = ({ category, boothId, schemeIds, deliveryMethod, lo
     output += `- Total failed: **${logs.filter(l => l.status === 'failed').length}**\n`;
 
     output += `\n### Voter Deliveries\n`;
-    output += `| Voter | Scheme | Status | Time |\n`;
-    output += `| --- | --- | --- | --- |\n`;
+    output += `| Voter | Mobile | Scheme | Relevance | Match Reasons | Status | Time |\n`;
+    output += `| --- | --- | --- | --- | --- | --- | --- |\n`;
 
     logs.forEach(log => {
         const schemeInfo = log.schemeName || log.schemeId || "";
-        output += `| ${log.voterName || "Unknown"} | ${schemeInfo} | ${log.status} | ${new Date(log.timestamp).toLocaleString()} |\n`;
+        const scores = log.relevanceScores || "N/A";
+        const reasons = log.matchReasons || "N/A";
+        output += `| ${log.voterName || "Unknown"} | ${log.voterMobile || "N/A"} | ${schemeInfo} | ${scores} | ${reasons} | ${log.status} | ${new Date(log.timestamp).toLocaleString()} |\n`;
     });
 
     output += `\n---\n`;
@@ -57,7 +59,7 @@ const getLoggedCategoryStatus = () => {
         const data = fs.readFileSync(LOG_FILE_PATH, 'utf8');
 
         const categoryState = {};
-        let currentDispatchTime = null;
+        let currentDispatchBlock = null;
 
         data.split(/\r?\n/).forEach((line) => {
             const trimmed = line.trim();
@@ -65,16 +67,35 @@ const getLoggedCategoryStatus = () => {
             if (trimmed.startsWith('## Notification Dispatch -')) {
                 const dateText = trimmed.replace('## Notification Dispatch -', '').trim();
                 const parsed = new Date(dateText);
-                currentDispatchTime = Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+                currentDispatchBlock = {
+                    time: Number.isNaN(parsed.getTime()) ? null : parsed.toISOString(),
+                    category: null,
+                    boothId: null
+                };
                 return;
             }
 
-            const categoryMatch = trimmed.match(/^-\s*Category:\s*\*\*(.+?)\*\*/i);
-            if (categoryMatch && currentDispatchTime) {
-                const category = categoryMatch[1].trim();
-                const existing = categoryState[category];
-                if (!existing || new Date(currentDispatchTime) > new Date(existing.lastSentAt)) {
-                    categoryState[category] = { category, lastSentAt: currentDispatchTime };
+            if (currentDispatchBlock && currentDispatchBlock.time) {
+                const categoryMatch = trimmed.match(/^-\s*Category:\s*\*\*(.+?)\*\*/i);
+                if (categoryMatch) {
+                    currentDispatchBlock.category = categoryMatch[1].trim();
+                }
+
+                const boothMatch = trimmed.match(/^-\s*Booth ID:\s*\*\*(.+?)\*\*/i);
+                if (boothMatch) {
+                    currentDispatchBlock.boothId = boothMatch[1].trim();
+                }
+
+                if (currentDispatchBlock.category && currentDispatchBlock.boothId) {
+                    const key = `${currentDispatchBlock.category}_${currentDispatchBlock.boothId}`;
+                    const existing = categoryState[key];
+                    if (!existing || new Date(currentDispatchBlock.time) > new Date(existing.lastSentAt)) {
+                        categoryState[key] = { 
+                            category: currentDispatchBlock.category, 
+                            boothId: currentDispatchBlock.boothId, 
+                            lastSentAt: currentDispatchBlock.time 
+                        };
+                    }
                 }
             }
         });
@@ -90,7 +111,7 @@ const getLoggedCategoryStatus = () => {
  * Back-compat: return simple list of category names.
  */
 const getLoggedCategories = () => {
-    return getLoggedCategoryStatus().map((entry) => entry.category);
+    return [...new Set(getLoggedCategoryStatus().map((entry) => entry.category))];
 };
 
 module.exports = { logNotificationBatch, getLoggedCategories, getLoggedCategoryStatus };

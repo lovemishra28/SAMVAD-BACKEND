@@ -11,6 +11,8 @@ const schemeRoutes = require("./routes/schemeRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const campaignRoutes = require("./routes/campaignRoutes");
 const errorHandler = require("./middleware/errorHandler");
+const authRoutes = require("./routes/authRoutes");
+const mobileRoutes = require("./routes/mobileRoutes");
 
 // Middleware
 app.use(cors());
@@ -33,6 +35,10 @@ app.use("/api/schemes", schemeRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/campaigns", campaignRoutes);
 app.use("/api/applications", require("./routes/applicationRoutes"));
+
+// Mobile app API routes
+app.use("/api/auth", authRoutes);
+app.use("/api/mobile", mobileRoutes);
 
 // Global error handler (Phase 6)
 app.use(errorHandler);
