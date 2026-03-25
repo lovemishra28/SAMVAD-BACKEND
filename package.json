@@ -7,7 +7,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "concurrently \"npm:server\" \"npm:ml\"",
     "server": "nodemon index.js",
-    "ml": "python ml/classifier_service.py"
+    "ml": ".\\.venv\\Scripts\\python.exe ml/classifier_service.py"
   },
   "keywords": [],
   "author": "",
