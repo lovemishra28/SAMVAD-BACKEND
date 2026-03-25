@@ -35,6 +35,7 @@ app.use("/api/schemes", schemeRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/campaigns", campaignRoutes);
 app.use("/api/applications", require("./routes/applicationRoutes"));
+app.use("/api/feedback", require("./routes/feedbackRoutes"));
 
 // Mobile app API routes
 app.use("/api/auth", authRoutes);

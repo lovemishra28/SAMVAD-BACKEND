@@ -165,7 +165,11 @@ const processBoothData = async (boothId) => {
         voterInterests,                        // interest matching
         voter.occupation || '',                // occupation matching
         voter.area_type || context?.areaType || "Rural",  // area matching
-        3                                      // top 3 most relevant schemes
+        3,                                     // top 3 most relevant schemes
+        voter.incomeRange,                     // income bracket (Lower, Middle, Higher)
+        voter.pwdStatus,                       // Person with Disability status
+        voter.bplStatus,                       // Below Poverty Line status
+        voter.scstStatus                       // SC/ST status
       );
 
       return {

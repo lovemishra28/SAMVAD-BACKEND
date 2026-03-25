@@ -65,8 +65,14 @@ const getNotifications = async (req, res) => {
  */
 const getSchemes = async (req, res) => {
   try {
-    const { occupation, area_type, mobileNumber } = req.user;
+    const { occupation, area_type, mobileNumber,
+            incomeRange, pwdStatus, bplStatus, scstStatus } = req.user;
     const now = new Date();
+
+    // Government Employee → no schemes
+    if (occupation === 'Government Employee') {
+      return res.json({ success: true, schemes: [] });
+    }
 
     // Build query: match occupation + area (or "All")
     const query = {};
@@ -89,6 +95,25 @@ const getSchemes = async (req, res) => {
       const startOk = !s.start_date || new Date(s.start_date) <= now;
       const endOk = !s.end_date || new Date(s.end_date) >= now;
       return startOk && endOk;
+    });
+
+    // ── ELIGIBILITY PRE-FILTER ──
+    const INCOME_ORDER = { 'below_1_5': 0, '1_5_to_3': 1, '3_to_6': 2, '6_to_10': 3, 'above_10': 4 };
+    schemes = schemes.filter(s => {
+      const elig = s.eligibility || {};
+      // BPL gate
+      if (elig.requiresBpl === true && bplStatus !== true) return false;
+      // SC/ST gate
+      if (elig.requiresScst === true && scstStatus !== true) return false;
+      // PwD gate
+      if (elig.requiresPwd === true && pwdStatus !== true) return false;
+      // Income cap
+      if (elig.maxIncomeBracket && incomeRange) {
+        const schemeMax = INCOME_ORDER[elig.maxIncomeBracket];
+        const userIncome = INCOME_ORDER[incomeRange];
+        if (schemeMax !== undefined && userIncome !== undefined && userIncome > schemeMax) return false;
+      }
+      return true;
     });
 
     // Sort by priority
@@ -241,6 +266,7 @@ const getApplications = async (req, res) => {
           benefit_type: full.benefit_type,
           eligibility: full.eligibility,
           end_date: full.end_date,
+          scheme_name: full.scheme_name,
         } : null,
       };
     });
@@ -315,10 +341,36 @@ const getMyRecommendations = async (req, res) => {
     // Sort by relevance score descending
     matches.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
+    // Fetch full scheme details from DB based on names
+    const namesArray = matches.map(m => m.schemeName);
+    const fullSchemes = await Scheme.find({ scheme_name: { $in: namesArray } }).lean();
+    const schemeMap = {};
+    fullSchemes.forEach(s => {
+      schemeMap[s.scheme_name] = s;
+    });
+
+    const enrichedMatches = matches.map(m => {
+      const full = schemeMap[m.schemeName];
+      if (full) {
+        return {
+          ...m,
+          scheme_id: full.scheme_id,
+          schemeId: full.scheme_id, // include both formats just in case
+          description: full.description,
+          benefit_type: full.benefit_type,
+          eligibility: full.eligibility,
+          end_date: full.end_date,
+          target_occupation: full.target_occupation,
+          target_interest: full.target_interest,
+        };
+      }
+      return m;
+    });
+
     res.json({
       success: true,
-      found: matches.length > 0,
-      schemes: matches,
+      found: enrichedMatches.length > 0,
+      schemes: enrichedMatches,
     });
   } catch (error) {
     console.error('[Mobile] getMyRecommendations error:', error);

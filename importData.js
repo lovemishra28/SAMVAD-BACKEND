@@ -30,6 +30,59 @@ const normalizeCityFromAddress = (address) => {
   return tokens.length > 0 ? tokens[0] : "";
 };
 
+// ─── Parse CSV eligibility text into structured object ─────────────
+const WOMEN_KEYWORDS = ['women', 'female', 'mahila', 'girl', 'beti', 'stree'];
+
+const parseEligibility = (rawText, scheme) => {
+  const text = (rawText || '').toLowerCase();
+  const result = {
+    rawText: rawText || '',
+    maxIncomeBracket: null,
+    requiresPwd: false,
+    requiresBpl: false,
+    requiresScst: false,
+    targetGender: null,
+    validOccupations: [],
+    validAreaTypes: [],
+  };
+
+  // Detect BPL requirement
+  if (text.includes('bpl')) {
+    result.requiresBpl = true;
+  }
+
+  // Detect SC/ST requirement
+  if (/\bsc\b/.test(text) || /\bst\b/.test(text)) {
+    result.requiresScst = false; // SC/ST in CSV means "focuses on" not "requires"
+    // Note: We mark requiresScst = true only if the scheme is EXCLUSIVELY for SC/ST
+    // Current CSV uses "Focuses on sc, st" meaning priority, not exclusivity
+  }
+
+  // Detect women-only schemes
+  if (WOMEN_KEYWORDS.some(kw => text.includes(kw))) {
+    result.targetGender = 'Female';
+  }
+
+  // Detect income-sensitive schemes (keywords like "poor", "bpl")
+  if (text.includes('poor') || text.includes('bpl')) {
+    result.maxIncomeBracket = '3_to_6'; // Schemes for poor/BPL cap at ₹6L
+  }
+
+  // Extract valid occupations from target_occupation
+  const occ = (scheme.target_occupation || '').trim();
+  if (occ) {
+    result.validOccupations = [occ];
+  }
+
+  // Extract valid area types from area_type
+  const area = (scheme.area_type || '').trim();
+  if (area && area !== 'All' && area !== 'Both') {
+    result.validAreaTypes = [area];
+  }
+
+  return result;
+};
+
 const importData = async () => {
   try {
     // Clear old data
@@ -77,6 +130,12 @@ const importData = async () => {
       areaType: c.area_type
     }));
 
+    // Parse schemes with structured eligibility
+    const schemesToInsert = schemes.map(s => ({
+      ...s,
+      eligibility: parseEligibility(s.eligibility, s),
+    }));
+
     const boothsToInsert = booths.map(b => ({
       ...b,
       voterCount: Number(b.voterCount) || 0,
@@ -85,7 +144,7 @@ const importData = async () => {
     // Insert into DB
     await Voter.insertMany(votersToInsert);
     await Context.insertMany(contextsToInsert);
-    await Scheme.insertMany(schemes);
+    await Scheme.insertMany(schemesToInsert);
     await Booth.insertMany(boothsToInsert);
 
     console.log("All data imported successfully ✅");

@@ -3,11 +3,21 @@ const Voter = require("../models/Voter");
 const User = require("../models/User");
 const { JWT_SECRET } = require("../middleware/auth");
 
-const VALID_OCCUPATIONS = ['Worker', 'Farmer', 'Student', 'Senior Citizen'];
+const VALID_OCCUPATIONS = ['Worker', 'Farmer', 'Student', 'Senior Citizen', 'Government Employee'];
 const VALID_INTERESTS = [
   'agriculture', 'arts', 'community', 'education', 'environment',
   'finance', 'health', 'sports', 'technology', 'welfare'
 ];
+const VALID_INCOME_RANGES = ['below_1_5', '1_5_to_3', '3_to_6', '6_to_10', 'above_10'];
+
+// ─── Occupation → required eligibility fields mapping ──────────────
+const OCCUPATION_FIELDS = {
+  'Student':             { incomeRange: true, pwdStatus: true, bplStatus: true, scstStatus: true },
+  'Farmer':              { incomeRange: true, pwdStatus: true, bplStatus: true, scstStatus: true },
+  'Worker':              { incomeRange: true, pwdStatus: true, bplStatus: true, scstStatus: true },
+  'Senior Citizen':      { incomeRange: true, pwdStatus: true, bplStatus: true, scstStatus: true },
+  'Government Employee': { incomeRange: true, pwdStatus: true, bplStatus: true, scstStatus: true },
+};
 
 // ─── In-memory OTP store (production: use Redis) ───────────────────
 // Map<mobileNumber, { code, expiresAt }>
@@ -56,7 +66,7 @@ const sendOtp = async (req, res) => {
  *   2. Check Voter collection for this mobile
  *   3. If voter not found → 403 (not registered)
  *   4. Find or create User from Voter data
- *   5. Return JWT + user profile
+ *   5. Return JWT + user profile + onboarding flags
  */
 const verifyOtp = async (req, res) => {
   try {
@@ -134,12 +144,15 @@ const verifyOtp = async (req, res) => {
 
     // Determine if user needs onboarding (missing occupation or interests)
     const needsOnboarding = !user.occupation || !user.interests || user.interests.length === 0;
+    // Determine if user needs eligibility check
+    const needsEligibility = !user.eligibilityChecked;
 
     res.json({
       success: true,
       message: "OTP verified successfully",
       token,
       needsOnboarding,
+      needsEligibility,
       user: {
         _id: user._id,
         name: user.name,
@@ -152,6 +165,12 @@ const verifyOtp = async (req, res) => {
         city: user.city,
         boothId: user.boothId,
         address: user.address,
+        incomeRange: user.incomeRange,
+        pwdStatus: user.pwdStatus,
+        bplStatus: user.bplStatus,
+        scstStatus: user.scstStatus,
+        eligibilityChecked: user.eligibilityChecked,
+        eligibilityLastUpdated: user.eligibilityLastUpdated,
       },
     });
   } catch (error) {
@@ -180,6 +199,12 @@ const getMe = async (req, res) => {
         city: req.user.city,
         boothId: req.user.boothId,
         address: req.user.address,
+        incomeRange: req.user.incomeRange,
+        pwdStatus: req.user.pwdStatus,
+        bplStatus: req.user.bplStatus,
+        scstStatus: req.user.scstStatus,
+        eligibilityChecked: req.user.eligibilityChecked,
+        eligibilityLastUpdated: req.user.eligibilityLastUpdated,
       },
     });
   } catch (error) {
@@ -190,12 +215,13 @@ const getMe = async (req, res) => {
 
 /**
  * PUT /api/auth/update-profile  (JWT protected)
- * Body: { occupation, interests }
+ * Body: { occupation, interests, incomeRange?, pwdStatus?, bplStatus?, scstStatus? }
  * Updates both Voter and User documents.
+ * Validates eligibility fields against occupation-specific rules.
  */
 const updateProfile = async (req, res) => {
   try {
-    const { occupation, interests } = req.body;
+    const { occupation, interests, incomeRange, pwdStatus, bplStatus, scstStatus } = req.body;
 
     // Validate occupation
     if (occupation && !VALID_OCCUPATIONS.includes(occupation)) {
@@ -216,9 +242,93 @@ const updateProfile = async (req, res) => {
       }
     }
 
+    // Validate income range
+    if (incomeRange && !VALID_INCOME_RANGES.includes(incomeRange)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid income range. Must be one of: ${VALID_INCOME_RANGES.join(', ')}`,
+      });
+    }
+
     const updates = {};
+    const effectiveOccupation = occupation || req.user.occupation;
+
     if (occupation) updates.occupation = occupation;
     if (interests && Array.isArray(interests)) updates.interests = interests;
+
+    // ─── Occupation-based eligibility field validation ─────────────
+    const fieldRules = OCCUPATION_FIELDS[effectiveOccupation];
+
+    if (fieldRules) {
+      // Only accept fields that are allowed for this occupation
+      if (fieldRules.incomeRange && incomeRange) {
+        updates.incomeRange = incomeRange;
+      } else if (!fieldRules.incomeRange && incomeRange) {
+        return res.status(400).json({
+          success: false,
+          message: `Income range is not applicable for ${effectiveOccupation}`,
+        });
+      }
+
+      if (fieldRules.pwdStatus && typeof pwdStatus === 'boolean') {
+        updates.pwdStatus = pwdStatus;
+      } else if (!fieldRules.pwdStatus && typeof pwdStatus === 'boolean') {
+        return res.status(400).json({
+          success: false,
+          message: `PwD status is not applicable for ${effectiveOccupation}`,
+        });
+      }
+
+      if (fieldRules.bplStatus && typeof bplStatus === 'boolean') {
+        updates.bplStatus = bplStatus;
+      } else if (!fieldRules.bplStatus && typeof bplStatus === 'boolean') {
+        return res.status(400).json({
+          success: false,
+          message: `BPL status is not applicable for ${effectiveOccupation}`,
+        });
+      }
+
+      if (fieldRules.scstStatus && typeof scstStatus === 'boolean') {
+        updates.scstStatus = scstStatus;
+      } else if (!fieldRules.scstStatus && typeof scstStatus === 'boolean') {
+        return res.status(400).json({
+          success: false,
+          message: `SC/ST status is not applicable for ${effectiveOccupation}`,
+        });
+      }
+
+      // Mark eligibility as checked if occupation is set
+      if (occupation || incomeRange !== undefined || pwdStatus !== undefined || bplStatus !== undefined || scstStatus !== undefined) {
+        updates.eligibilityChecked = true;
+        updates.eligibilityLastUpdated = new Date();
+      }
+
+      // Government Employee: auto-mark eligibility done (no fields needed)
+      if (effectiveOccupation === 'Government Employee') {
+        updates.eligibilityChecked = true;
+        updates.eligibilityLastUpdated = new Date();
+      }
+    }
+
+    // If occupation changed, reset eligibility fields that don't apply to new occupation
+    if (occupation && occupation !== req.user.occupation) {
+      const newRules = OCCUPATION_FIELDS[occupation];
+      if (newRules) {
+        if (!newRules.incomeRange) updates.incomeRange = '';
+        if (!newRules.pwdStatus) updates.pwdStatus = false;
+        if (!newRules.bplStatus) updates.bplStatus = false;
+        if (!newRules.scstStatus) updates.scstStatus = false;
+
+        // If switching to Government Employee, auto-complete eligibility
+        if (occupation === 'Government Employee') {
+          updates.eligibilityChecked = true;
+          updates.eligibilityLastUpdated = new Date();
+        } else {
+          // For other occupation changes, require re-filling eligibility
+          updates.eligibilityChecked = false;
+        }
+      }
+    }
 
     // Update User document
     const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true });
@@ -226,7 +336,7 @@ const updateProfile = async (req, res) => {
     // Also update Voter document to keep in sync
     await Voter.findOneAndUpdate({ mobileNumber: req.user.mobileNumber }, updates);
 
-    console.log(`[Auth] Profile updated: ${user.name} → occ=${updates.occupation || '(unchanged)'}, interests=${JSON.stringify(updates.interests || '(unchanged)')}`);
+    console.log(`[Auth] Profile updated: ${user.name} → occ=${updates.occupation || '(unchanged)'}, eligibility=${user.eligibilityChecked ? 'checked' : 'pending'}`);
 
     res.json({
       success: true,
@@ -243,6 +353,12 @@ const updateProfile = async (req, res) => {
         city: user.city,
         boothId: user.boothId,
         address: user.address,
+        incomeRange: user.incomeRange,
+        pwdStatus: user.pwdStatus,
+        bplStatus: user.bplStatus,
+        scstStatus: user.scstStatus,
+        eligibilityChecked: user.eligibilityChecked,
+        eligibilityLastUpdated: user.eligibilityLastUpdated,
       },
     });
   } catch (error) {
@@ -251,4 +367,4 @@ const updateProfile = async (req, res) => {
   }
 };
 
-module.exports = { sendOtp, verifyOtp, getMe, updateProfile, VALID_OCCUPATIONS, VALID_INTERESTS };
+module.exports = { sendOtp, verifyOtp, getMe, updateProfile, VALID_OCCUPATIONS, VALID_INTERESTS, VALID_INCOME_RANGES, OCCUPATION_FIELDS };

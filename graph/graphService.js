@@ -59,6 +59,15 @@ const AGE_AFFINITY = {
   arts:               { minAge: 18, maxAge: 50, peak: 25 },
 };
 
+// ─── Income Bracket Ordinals (for comparison) ──────────────────────
+const INCOME_BRACKET_ORDER = {
+  'below_1_5': 0,
+  '1_5_to_3':  1,
+  '3_to_6':    2,
+  '6_to_10':   3,
+  'above_10':  4,
+};
+
 
 // ─── PersonalizedRecommender ───────────────────────────────────────
 
@@ -103,7 +112,8 @@ class PersonalizedRecommender {
   // ─── Pre-annotation Helpers ─────────────────────────────────
 
   _detectWomenScheme(scheme) {
-    const eligibility = (scheme.eligibility || '').toLowerCase();
+    const eligibilityRaw = scheme.eligibility || '';
+    const eligibility = (typeof eligibilityRaw === 'string' ? eligibilityRaw : JSON.stringify(eligibilityRaw)).toLowerCase();
     const name = (scheme.scheme_name || '').toLowerCase();
     return WOMEN_KEYWORDS.some(kw => eligibility.includes(kw) || name.includes(kw))
       || eligibility.startsWith('for women');
@@ -144,7 +154,10 @@ class PersonalizedRecommender {
 
   // ─── Stage 1: Strict Pre-Filters ───────────────────────────
 
-  _passesPreFilters(scheme, voterOcc, voterArea, voterGender) {
+  _passesPreFilters(scheme, voterOcc, voterArea, voterGender, eligibility = {}) {
+    // FILTER 0: Government Employee — no schemes target this category
+    if (voterOcc === 'government employee') return false;
+
     // FILTER 1: Must be active
     if (!scheme._isActive) return false;
 
@@ -159,6 +172,27 @@ class PersonalizedRecommender {
     const schemeArea = scheme._normalizedArea;
     if (schemeArea && schemeArea !== 'All' && schemeArea !== 'Both') {
       if (schemeArea !== voterArea) return false;
+    }
+
+    // ── STAGE 0: ELIGIBILITY PRE-FILTER ──
+    const elig = scheme.eligibility || {};
+
+    // FILTER 5: BPL requirement
+    if (elig.requiresBpl === true && eligibility.bplStatus !== true) return false;
+
+    // FILTER 6: SC/ST requirement
+    if (elig.requiresScst === true && eligibility.scstStatus !== true) return false;
+
+    // FILTER 7: PwD requirement
+    if (elig.requiresPwd === true && eligibility.pwdStatus !== true) return false;
+
+    // FILTER 8: Income bracket cap
+    if (elig.maxIncomeBracket && eligibility.incomeRange) {
+      const schemeMax = INCOME_BRACKET_ORDER[elig.maxIncomeBracket];
+      const userIncome = INCOME_BRACKET_ORDER[eligibility.incomeRange];
+      if (schemeMax !== undefined && userIncome !== undefined && userIncome > schemeMax) {
+        return false;
+      }
     }
 
     return true;
@@ -340,17 +374,19 @@ class PersonalizedRecommender {
   async recommend(voterProfile, options = { topN: 3 }) {
     await this.ensureBuilt();
 
-    const { occupation, interests, area_type, gender, age } = voterProfile;
+    const { occupation, interests, area_type, gender, age,
+            incomeRange, pwdStatus, bplStatus, scstStatus } = voterProfile;
 
     const voterOcc    = (occupation || '').toLowerCase().trim();
     const voterArea   = (area_type || '').trim();
     const voterGender = (gender || '').trim();
+    const eligibility = { incomeRange, pwdStatus, bplStatus, scstStatus };
 
     const candidates = [];
 
     for (const scheme of this.schemes) {
-      // ── STAGE 1: STRICT PRE-FILTERS ──
-      if (!this._passesPreFilters(scheme, voterOcc, voterArea, voterGender)) continue;
+      // ── STAGE 0 + STAGE 1: ELIGIBILITY + STRICT PRE-FILTERS ──
+      if (!this._passesPreFilters(scheme, voterOcc, voterArea, voterGender, eligibility)) continue;
 
       // ── STAGE 2: MULTIPLICATIVE INTEREST-GATED SCORING ──
       const interestResult = this._scoreInterest(scheme, interests);
@@ -389,6 +425,13 @@ class PersonalizedRecommender {
       } else {
         reasons.push(`Gender: eligible ✓`);
       }
+
+      // Eligibility
+      const elig = scheme.eligibility || {};
+      if (elig.requiresBpl && bplStatus) reasons.push('BPL: eligible ✓');
+      if (elig.requiresScst && scstStatus) reasons.push('SC/ST: eligible ✓');
+      if (elig.requiresPwd && pwdStatus) reasons.push('PwD: eligible ✓');
+      if (elig.maxIncomeBracket && incomeRange) reasons.push(`Income: within cap ✓`);
 
       // Age
       if (ageScore >= 0.8) reasons.push(`Age: ${age}y — ideal range ✓`);
@@ -456,7 +499,11 @@ const getRecommendedSchemes = async (
   interests = [],
   occupation = '',
   areaType = 'Rural',
-  topN = 3
+  topN = 3,
+  incomeRange = null,
+  pwdStatus = false,
+  bplStatus = false,
+  scstStatus = false
 ) => {
   // Derive occupation from ML scores if voter has no direct occupation
   let derivedOccupation = occupation;
@@ -475,6 +522,10 @@ const getRecommendedSchemes = async (
       gender,
       age,
       mlScores,
+      incomeRange,
+      pwdStatus,
+      bplStatus,
+      scstStatus
     },
     { topN }
   );
