@@ -1,5 +1,8 @@
 const mongoose = require("mongoose");
 const csv = require("csvtojson");
+require("dotenv").config();
+
+const mongoUrl = process.env.MONGODB_URL || process.env.MONGO_URI;
 
 const Voter = require("./models/Voter");
 const Context = require("./models/Context");
@@ -8,7 +11,11 @@ const Context = require("./models/Context");
 const Scheme = require("./models/Scheme");
 const Booth = require("./models/Booth");
 
-mongoose.connect("mongodb://127.0.0.1:27017/samvad");
+if (!mongoUrl) {
+  throw new Error("Missing MONGODB_URL/MONGO_URI in server/.env");
+}
+
+mongoose.connect(mongoUrl);
 
 const makeMobileNumber = (index) => {
   // deterministic 10-digit fallback mobile numbers
