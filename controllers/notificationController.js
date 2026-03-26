@@ -1,7 +1,6 @@
 const Notification = require("../models/Notification");
 const NotificationDelivery = require("../models/NotificationDelivery");
 const { processBoothData } = require("../services/boothService");
-const { logNotificationBatch, getLoggedCategories, getLoggedCategoryStatus } = require("../utils/logger");
 
 // NEW: Twilio specific imports
 const twilio = require('twilio');
@@ -106,15 +105,6 @@ const sendNotification = async (req, res) => {
       console.log(`║  ... +${voters.length - 5} more voters with personalized schemes           ║`);
     }
     console.log("╚═══════════════════════════════════════════════════════════════════╝\n");
-
-    // ─── Notification Log File ───
-    logNotificationBatch({ 
-      category, 
-      boothId, 
-      schemeIds, 
-      deliveryMethod, 
-      logs 
-    });
 
     const record = await Notification.create({
       category,
@@ -222,13 +212,31 @@ const getSummary = async (req, res) => {
   }
 };
 
-const getLogCategories = (req, res) => {
+const getLogCategories = async (req, res) => {
   try {
-    const status = getLoggedCategoryStatus();
-    res.json({ success: true, categories: status });
+    const statusAgg = await Notification.aggregate([
+      {
+        $sort: { sentAt: -1 }
+      },
+      {
+        $group: {
+          _id: { category: "$category", boothId: "$boothId" },
+          lastSentAt: { $first: "$sentAt" }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          category: "$_id.category",
+          boothId: "$_id.boothId",
+          lastSentAt: 1
+        }
+      }
+    ]);
+    res.json({ success: true, categories: statusAgg });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, message: "Failed to read notification categories from log", error: error.message });
+    res.status(500).json({ success: false, message: "Failed to read notification categories from DB", error: error.message });
   }
 };
 

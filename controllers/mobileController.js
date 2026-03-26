@@ -286,45 +286,30 @@ const getApplications = async (req, res) => {
 const getMyRecommendations = async (req, res) => {
   try {
     const { mobileNumber } = req.user;
-    const logPath = path.join(__dirname, '../logs/notification_log.md');
 
-    if (!fs.existsSync(logPath)) {
+    const deliveries = await NotificationDelivery.find({ mobileNumber })
+      .sort({ sentAt: -1 })
+      .lean();
+
+    if (!deliveries || deliveries.length === 0) {
       return res.json({ success: true, found: false, schemes: [] });
     }
 
-    const content = fs.readFileSync(logPath, 'utf8');
-    const lines = content.split(/\r?\n/);
-
-    // Parse table rows: | Voter | Mobile | Scheme | Relevance | ... |
     const matches = [];
     const seen = new Set();
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith('|')) continue;
-      // Skip header / separator rows
-      if (trimmed.includes('---') || trimmed.toLowerCase().includes('| voter')) continue;
-
-      const cells = trimmed.split('|').map(c => c.trim()).filter(Boolean);
-      // cells: [Voter, Mobile, Scheme, Relevance, MatchReasons, Status, Time]
-      if (cells.length < 4) continue;
-
-      const mobile = cells[1].trim();
-      if (mobile !== mobileNumber) continue;
-
-      const schemeNamesRaw = cells[2].trim();
-      const relevanceRaw = cells[3].trim();
-
-      // Parse scheme names (comma separated)
-      const schemeNames = schemeNamesRaw.split(',').map(s => s.trim()).filter(Boolean);
-
-      // Parse relevance scores: "SchemeName(XX%), SchemeName(YY%)"
+    for (const delivery of deliveries) {
+      const schemeNames = delivery.schemeNames || [];
       const scoreMap = {};
-      const scoreParts = relevanceRaw.split(',').map(s => s.trim());
-      for (const part of scoreParts) {
-        const match = part.match(/^(.+?)\((\d+)%\)$/);
-        if (match) {
-          scoreMap[match[1].trim()] = parseInt(match[2], 10);
+
+      if (delivery.relevanceScores) {
+        // Parse relevance scores: "SchemeName(XX%), SchemeName(YY%)"
+        const scoreParts = delivery.relevanceScores.split(',').map(s => s.trim());
+        for (const part of scoreParts) {
+          const match = part.match(/^(.+?)\((\d+)%\)$/);
+          if (match) {
+            scoreMap[match[1].trim()] = parseInt(match[2], 10);
+          }
         }
       }
 
