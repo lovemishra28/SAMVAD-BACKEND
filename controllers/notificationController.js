@@ -13,7 +13,10 @@ const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_A
 // NEW: Add your 6 team members' 10-digit mobile numbers here
 const DEMO_WHATSAPP_NUMBERS = [
   '7668678890', // Team Member 1
-  // ... I'll add others later
+  '9644397542',
+  '8109435620',
+  '7477078012',
+  '7000028788',
 ];
 
 // Mapping from frontend-friendly category names to internal ML category keys
