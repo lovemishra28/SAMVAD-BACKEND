@@ -17,6 +17,7 @@ const DEMO_WHATSAPP_NUMBERS = [
   '8109435620',
   '7477078012',
   '7000028788',
+  '6263356379',
 ];
 
 // Mapping from frontend-friendly category names to internal ML category keys
