@@ -14,7 +14,7 @@ Sunil Verma,36,Male,Booth_09,Chhindwara,7000000011,,,Rural
 Kiran Verma,46,Female,Booth_19,Ujjain,7000000012,Farmer,agriculture,Urban
 Amit Singh,54,Male,Booth_17,Panna,7000000013,,,Rural
 Priya Reddy,33,Female,Booth_17,Panna,7000000014,,,Rural
-Love Mishra,21,Male,Booth_18,Gwalior,7668678890,Student,education,Urban
+Lavanyaa Mishra,20,Female,Booth_03,Vidisha,7668678890,,,Rural
 Naveen Dubey,49,Male,Booth_15,Sagar,7000000016,Farmer,agriculture,Urban
 Divya Patel,58,Female,Booth_21,Ratlam,7000000017,Farmer,agriculture,Urban
 Shweta Mishra,71,Female,Booth_05,Morena,7000000018,,,Rural
@@ -87,7 +87,7 @@ Anil Shah,22,Male,Booth_01,Rewa,7000000084,Student,arts,Urban
 Sanjay Das,29,Male,Booth_15,Sagar,7000000085,Worker,technology,Urban
 Sarita Patel,44,Female,Booth_21,Ratlam,7000000086,Worker,technology,Urban
 Rahul Malik,22,Male,Booth_06,Burhanpur,7000000087,Student,arts,Urban
-Vinay Singh,21,Male,Booth_18,Gwalior,7477078012,Student,education,Urban
+Vinay Singh,32,Male,Booth_02,Tikamgarh,7477078012,,,Urban
 Ashok Chauhan,20,Male,Booth_12,Indore,7000000089,Student,sports,Urban
 Seema Patel,27,Female,Booth_05,Morena,7000000090,,,Rural
 Jyoti Kumar,42,Female,Booth_13,Jabalpur,7000000091,Worker,travel,Urban
@@ -139,7 +139,7 @@ Pooja Mishra,41,Female,Booth_09,Chhindwara,7000000136,,,Rural
 Ajay Srivastava,54,Male,Booth_03,Vidisha,7000000137,Worker,lifestyle,Semi-Urban
 Rekha Singh,43,Female,Booth_13,Jabalpur,7000000138,Worker,sports,Urban
 Anjali Patel,30,Female,Booth_02,Tikamgarh,7000000139,,,Rural
-Kuldeep Rajak,20,Male,Booth_18,Gwalior,9644397542,Student,sports,Urban
+Kuldeep Rajak,68,Male,Booth_04,Hoshangabad,9644397542,,,Rural
 Pooja Malik,49,Female,Booth_15,Sagar,7000000141,Worker,lifestyle,Urban
 Sonia Reddy,57,Female,Booth_01,Rewa,7000000142,Worker,health,Urban
 Kavita Das,57,Female,Booth_05,Morena,7000000143,,,Rural
@@ -248,7 +248,7 @@ Jyoti Singh,48,Female,Booth_04,Hoshangabad,7000000245,Worker,community,Semi-Urba
 Karan Malik,54,Male,Booth_08,Satna,7000000246,Worker,lifestyle,Urban
 Sanjay Mehta,58,Male,Booth_24,Shivpuri,7000000247,,,Rural
 Ritu Reddy,50,Female,Booth_25,Datia,7000000248,,,Rural
-Aryan Baraiya,21,Male,Booth_18,Gwalior,8109435620,Student,education,Urban
+Anshika Baraiya,45,Female,Booth_25,Datia,8109435620,,,Rural
 Smita Malik,40,Female,Booth_23,Seoni,7000000250,,,Rural
 Kavita Yadav,44,Female,Booth_08,Satna,7000000251,Worker,technology,Urban
 Seema Verma,58,Female,Booth_12,Indore,7000000252,Worker,community,Urban
@@ -429,7 +429,7 @@ Geeta Dubey,26,Female,Booth_13,Jabalpur,7000000426,Worker,technology,Urban
 Anil Sharma,41,Male,Booth_08,Satna,7000000427,Worker,technology,Urban
 Jyoti Das,32,Female,Booth_10,Dewas,7000000428,Worker,technology,Semi-Urban
 Vinod Jain,22,Male,Booth_08,Satna,7000000429,Student,arts,Urban
-Pratham Gupta,20,Male,Booth_18,Gwalior,6263356379,Student,sports,Urban
+Prathamika Gupta,19,Female,Booth_02,Tikamgarh,6263356379,,,Urban
 Lata Verma,49,Female,Booth_25,Datia,7000000431,,,Rural
 Karan Khan,18,Male,Booth_01,Rewa,7000000432,Student,technology,Urban
 Lata Patel,49,Female,Booth_18,Gwalior,7000000433,Farmer,agriculture,Urban
@@ -519,7 +519,7 @@ Anjali Mehta,28,Female,Booth_04,Hoshangabad,7000000516,Worker,finance,Semi-Urban
 Shweta Singh,45,Female,Booth_08,Satna,7000000517,Worker,arts,Urban
 Ritu Dubey,40,Female,Booth_01,Rewa,7000000518,Worker,finance,Urban
 Meena Mishra,22,Female,Booth_04,Hoshangabad,7000000519,Student,arts,Semi-Urban
-Aashu Dhakad,20,Male,Booth_18,Gwalior,7000028788,Student,sports,Urban
+Aashu Dhakad,25,Male,Booth_05,Morena,7000028788,,,Rural
 Manish Dubey,25,Male,Booth_04,Hoshangabad,7000000521,Student,sports,Semi-Urban
 Vinod Verma,58,Male,Booth_02,Tikamgarh,7000000522,,,Rural
 Meena Gupta,22,Female,Booth_16,Bhopal,7000000523,Student,arts,Urban

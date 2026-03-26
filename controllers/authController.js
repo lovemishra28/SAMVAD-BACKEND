@@ -2,6 +2,11 @@ const jwt = require("jsonwebtoken");
 const Voter = require("../models/Voter");
 const User = require("../models/User");
 const { JWT_SECRET } = require("../middleware/auth");
+const twilio = require('twilio');
+const dotenv = require('dotenv');
+dotenv.config();
+
+const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 const VALID_OCCUPATIONS = ['Worker', 'Farmer', 'Student', 'Senior Citizen', 'Government Employee'];
 const VALID_INTERESTS = [
@@ -46,9 +51,14 @@ const sendOtp = async (req, res) => {
       expiresAt: Date.now() + OTP_TTL_MS,
     });
 
-    // In production, send via SMS gateway (MSG91 / Twilio).
-    // For now, log to server console.
-    console.log(`\n📱 [OTP] Mobile: ${mobileNumber} → Code: ${code}  (expires in 5 min)\n`);
+    // Send the OTP via Twilio WhatsApp Sandbox
+    await twilioClient.messages.create({
+      body: `Your SAMVAD login OTP is: ${code}. It expires in 5 minutes.`,
+      from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+      to: `whatsapp:+91${mobileNumber}`
+    });
+
+    console.log(`\n📱 [OTP] WhatsApp sent to: +91${mobileNumber} (Code: ${code})\n`);
 
     res.json({ success: true, message: "OTP sent successfully" });
   } catch (error) {

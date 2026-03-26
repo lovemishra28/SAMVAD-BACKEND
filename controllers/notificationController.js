@@ -3,6 +3,19 @@ const NotificationDelivery = require("../models/NotificationDelivery");
 const { processBoothData } = require("../services/boothService");
 const { logNotificationBatch, getLoggedCategories, getLoggedCategoryStatus } = require("../utils/logger");
 
+// NEW: Twilio specific imports
+const twilio = require('twilio');
+const dotenv = require('dotenv');
+dotenv.config();
+
+const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+
+// NEW: Add your 6 team members' 10-digit mobile numbers here
+const DEMO_WHATSAPP_NUMBERS = [
+  '7668678890', // Team Member 1
+  // ... I'll add others later
+];
+
 // Mapping from frontend-friendly category names to internal ML category keys
 const CATEGORY_MAP = {
   Farmers: "Farmer",
@@ -108,6 +121,25 @@ const sendNotification = async (req, res) => {
       status: "sent",
       deliveryMethod,
       logs,
+    });
+
+    // ─── NEW: Send Real WhatsApp Messages to Team Members ───
+    logs.forEach((log) => {
+      // Check if the number is in our demo array
+      if (DEMO_WHATSAPP_NUMBERS.includes(log.voterMobile)) {
+        
+        // Build a formatted WhatsApp message
+        const messageBody = `*Hello ${log.voterName}!* 🎉\n\nBased on your profile, you are eligible for:\n*${log.schemeName}*\n\nPlease check the SAMVAD app or nearest MP Online Shop for more details.\n\n*नमस्ते ${log.voterName} जी!* 🎉\n\nआपकी प्रोफाइल के आधार पर, आप इस योजना के लिए पात्र हैं:\n*${log.schemeName}*\n\nअधिक जानकारी के लिए SAMVAD ऐप या नजदीकी MP Online Shop पर संपर्क करें।`;
+
+        // Send the message via Twilio Sandbox API
+        twilioClient.messages.create({
+          body: messageBody,
+          from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+          to: `whatsapp:+91${log.voterMobile}` // Format as Indian numbers (+91)
+        })
+        .then(() => console.log(`[Twilio] ✅ WhatsApp sent successfully to ${log.voterMobile}`))
+        .catch(err => console.error(`[Twilio] ❌ Failed to send WhatsApp to ${log.voterMobile}:`, err.message));
+      }
     });
 
     // ─── Write per-voter NotificationDelivery docs for mobile API ───
